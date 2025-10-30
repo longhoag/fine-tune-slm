@@ -1,0 +1,67 @@
+# AWS Configuration - SSM Parameter Store References
+# All values are stored in AWS SSM Parameter Store for maximum flexibility
+# This file maps configuration keys to SSM parameter paths
+# Use scripts/setup/init_ssm_parameters.py to initialize parameters
+
+aws:
+  region: 
+    ssm_param: /fine-tune-slm/aws/region
+    default: us-east-1
+  
+  ec2:
+    instance_id:
+      ssm_param: /fine-tune-slm/ec2/instance-id
+      description: "EC2 instance ID for training (e.g., i-1234567890abcdef0)"
+    instance_type:
+      ssm_param: /fine-tune-slm/ec2/instance-type
+      default: g6.2xlarge
+    
+  ebs:
+    volume_id:
+      ssm_param: /fine-tune-slm/ebs/volume-id
+      description: "EBS volume ID for checkpoints (e.g., vol-1234567890abcdef0)"
+    mount_path:
+      ssm_param: /fine-tune-slm/ebs/mount-path
+      default: /mnt/training
+    volume_type:
+      ssm_param: /fine-tune-slm/ebs/volume-type
+      default: gp3
+    size_gb:
+      ssm_param: /fine-tune-slm/ebs/size-gb
+      default: 100
+    
+  s3:
+    bucket:
+      ssm_param: /fine-tune-slm/s3/bucket
+      description: "S3 bucket for model artifacts (e.g., fine-tune-llama-models)"
+    prefix:
+      ssm_param: /fine-tune-slm/s3/prefix
+      default: models/llama-3.1-8b-medical-ie
+    
+  ecr:
+    repository:
+      ssm_param: /fine-tune-slm/ecr/repository
+      default: fine-tune-llama
+    registry:
+      ssm_param: /fine-tune-slm/ecr/registry
+      description: "ECR registry URL (e.g., 123456789012.dkr.ecr.us-east-1.amazonaws.com)"
+    
+  secrets_manager:
+    # Secrets Manager secret names (accessed via SSM Parameter Store integration)
+    hf_token_secret:
+      ssm_param: /fine-tune-slm/secrets/hf-token-name
+      default: "huggingface/api-token"
+    aws_credentials_secret:
+      ssm_param: /fine-tune-slm/secrets/aws-credentials-name
+      default: "aws/credentials"
+    docker_token_secret:
+      ssm_param: /fine-tune-slm/secrets/docker-token-name
+      default: "docker/token"
+
+  cloudwatch:
+    log_group:
+      ssm_param: /fine-tune-slm/cloudwatch/log-group
+      default: /aws/ssm/fine-tune-llama
+    log_stream_prefix:
+      ssm_param: /fine-tune-slm/cloudwatch/log-stream-prefix
+      default: training

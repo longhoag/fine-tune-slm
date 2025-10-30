@@ -1,0 +1,49 @@
+# .dockerignore - Exclude unnecessary files from Docker build
+
+# Git
+.git/
+.github/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+outputs/
+checkpoints/
+*.log
+
+# Documentation
+README.md
+LICENSE
+docs/
+
+# Local scripts (not needed in container)
+scripts/setup/
+scripts/finetune/
+
+# Keep only what's needed for training
+!src/
+!synthetic-instruction-tuning-dataset/
+!config/

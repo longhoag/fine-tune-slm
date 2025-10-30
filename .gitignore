@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Training outputs
+outputs/
+checkpoints/
+models/
+
+# Docker
+docker/outputs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# AWS
+.aws/
+*.pem
+*.key
+
+# Temporary files
+*.tmp
+*.bak
+temp/
+
+# credentials
+setup-summary.txt

@@ -1,0 +1,60 @@
+# Training Configuration for LoRA Fine-tuning
+# Training hyperparameters stored directly in this file
+# AWS resource references (S3 bucket, HF repo) use SSM Parameter Store
+
+model:
+  name: meta-llama/Meta-Llama-3.1-8B
+  
+dataset:
+  train_path: /workspace/data/train.jsonl
+  validation_path: /workspace/data/validation.jsonl
+  max_seq_length: 2048
+  
+lora:
+  # LoRA hyperparameters
+  r: 16  # LoRA rank
+  lora_alpha: 32
+  lora_dropout: 0.1
+  target_modules:
+    - q_proj
+    - v_proj
+    - k_proj
+    - o_proj
+  bias: none
+  task_type: CAUSAL_LM
+
+training:
+  output_dir: /mnt/training/checkpoints  # EBS volume path
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-4
+  warmup_steps: 100
+  logging_steps: 10
+  save_steps: 500
+  eval_steps: 500
+  save_total_limit: 3
+  fp16: true
+  optim: paged_adamw_8bit
+  
+  # Evaluation strategy
+  evaluation_strategy: steps
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  
+quantization:
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: float16
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+
+output:
+  # Reference AWS resources from SSM Parameter Store
+  s3_bucket:
+    ssm_param: /fine-tune-slm/s3/bucket
+  s3_prefix:
+    ssm_param: /fine-tune-slm/s3/prefix
+  hf_repo:
+    ssm_param: /fine-tune-slm/output/hf-repo
+    description: "HuggingFace repo (e.g., username/llama-3.1-8b-medical-ie)"
