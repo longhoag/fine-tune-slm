@@ -39,12 +39,34 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # TODO: Implement Docker build and push
-          echo "Building Docker image..."
-          # docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile .
-          # docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          # docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          # docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "Building Docker image for fine-tune-llama..."
+          echo "Registry: $ECR_REGISTRY"
+          echo "Repository: $ECR_REPOSITORY"
+          echo "Image Tag: $IMAGE_TAG"
+          
+          # Build Docker image
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile .
+          
+          # Tag as latest
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          # Push both tags to ECR
+          echo "Pushing image with commit SHA tag: $IMAGE_TAG"
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          
+          echo "Pushing image with latest tag"
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "✅ Successfully pushed images to ECR"
 
       - name: Image digest
-        run: echo "Image pushed successfully"
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "🎉 Build and push completed successfully!"
+          echo "Image URI: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          echo "Image SHA: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo ""
+          echo "To pull this image on EC2:"
+          echo "docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest"
