@@ -23,6 +23,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Free up disk space
+        run: |
+          echo "Available disk space before cleanup:"
+          df -h
+          
+          echo "Cleaning up unnecessary files..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          
+          echo "Available disk space after cleanup:"
+          df -h
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,6 +51,9 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -44,8 +64,18 @@ jobs:
           echo "Repository: $ECR_REPOSITORY"
           echo "Image Tag: $IMAGE_TAG"
           
-          # Build Docker image
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f docker/Dockerfile .
+          echo "Disk space before build:"
+          df -h
+          
+          # Build Docker image with BuildKit for better caching
+          DOCKER_BUILDKIT=1 docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -f docker/Dockerfile \
+            --progress=plain \
+            .
+          
+          echo "Disk space after build:"
+          df -h
           
           # Tag as latest
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
@@ -56,6 +86,10 @@ jobs:
           
           echo "Pushing image with latest tag"
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          # Clean up local images to free space
+          docker rmi $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG || true
+          docker rmi $ECR_REGISTRY/$ECR_REPOSITORY:latest || true
           
           echo "✅ Successfully pushed images to ECR"
 
