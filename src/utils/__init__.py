@@ -7,7 +7,7 @@ from .aws_helpers import (
     S3Manager,
     SecretsManager
 )
-from .config import Config, load_config
+from .config import ConfigLoader, MultiConfigLoader, load_config, load_all_configs
 from .logger import setup_logger, log_aws_operation, log_training_metrics
 
 __all__ = [
@@ -16,8 +16,10 @@ __all__ = [
     "SSMManager",
     "S3Manager",
     "SecretsManager",
-    "Config",
+    "ConfigLoader",
+    "MultiConfigLoader",
     "load_config",
+    "load_all_configs",
     "setup_logger",
     "log_aws_operation",
     "log_training_metrics",

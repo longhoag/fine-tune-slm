@@ -33,6 +33,8 @@ Thumbs.db
 outputs/
 checkpoints/
 *.log
+poetry.lock
+pyproject.toml
 
 # Documentation
 README.md
