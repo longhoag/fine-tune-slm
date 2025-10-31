@@ -67,10 +67,15 @@ jobs:
           echo "Disk space before build:"
           df -h
           
-          # Build Docker image with BuildKit for better caching
+          # Build Docker image with cache from ECR
+          # This pulls the 'latest' tag to use as build cache
+          docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest || echo "No cache image found, building from scratch"
+          
           DOCKER_BUILDKIT=1 docker build \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             -f docker/Dockerfile \
+            --cache-from $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
             --progress=plain \
             .
           
