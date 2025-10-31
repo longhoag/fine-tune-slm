@@ -9,51 +9,59 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from loguru import logger
 import yaml
+import boto3
+from botocore.exceptions import ClientError
 
 
-class Config:
+class ConfigLoader:
     """Configuration manager with SSM Parameter Store resolution."""
     
-    def __init__(self, config_dir: str = "config", ssm_client=None):
+    def __init__(self, config_path: str, use_ssm: bool = True, region: str = "us-east-1"):
         """
-        Initialize configuration manager.
+        Initialize configuration loader.
         
         Args:
-            config_dir: Directory containing config files
-            ssm_client: AWS SSM client (optional, for parameter resolution)
+            config_path: Path to YAML configuration file
+            use_ssm: Whether to resolve SSM parameters (False for local testing)
+            region: AWS region for SSM client
         """
-        self.config_dir = Path(config_dir)
-        self.ssm_client = ssm_client
-        self._aws_config: Dict[str, Any] = {}
-        self._training_config: Dict[str, Any] = {}
-        self._resolved_cache: Dict[str, Any] = {}  # Cache for resolved SSM parameters
+        self.config_path = Path(config_path)
+        self.use_ssm = use_ssm
+        self.region = region
+        self._raw_config: Dict[str, Any] = {}
+        self._resolved_cache: Dict[str, Any] = {}
         
-    def load_aws_config(self) -> Dict[str, Any]:
-        """Load AWS configuration."""
-        config_path = self.config_dir / "aws_config.yml"
-        logger.info(f"Loading AWS config from: {config_path}")
+        # Initialize SSM client if enabled
+        self.ssm_client = None
+        if use_ssm:
+            try:
+                self.ssm_client = boto3.client('ssm', region_name=region)
+                logger.info(f"Initialized SSM client for region: {region}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize SSM client: {e}. Will use default values.")
+                self.use_ssm = False
         
-        # TODO: Load YAML file
-        # with open(config_path) as f:
-        #     self._aws_config = yaml.safe_load(f)
+        # Load configuration
+        self._load_yaml()
         
-        # TODO: Validate required fields
+    def _load_yaml(self) -> None:
+        """Load YAML configuration file."""
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
+            
+        logger.info(f"Loading configuration from: {self.config_path}")
         
-        return self._aws_config
-        
-    def load_training_config(self) -> Dict[str, Any]:
-        """Load training configuration."""
-        config_path = self.config_dir / "training_config.yml"
-        logger.info(f"Loading training config from: {config_path}")
-        
-        # TODO: Load YAML file
-        # with open(config_path) as f:
-        #     self._training_config = yaml.safe_load(f)
-        
-        # TODO: Validate required fields
-        
-        return self._training_config
-        
+        try:
+            with open(self.config_path, 'r') as f:
+                self._raw_config = yaml.safe_load(f) or {}
+            logger.debug(f"Loaded configuration with {len(self._raw_config)} top-level keys")
+        except yaml.YAMLError as e:
+            logger.error(f"Failed to parse YAML configuration: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to load configuration file: {e}")
+            raise
+            
     def _resolve_ssm_value(self, config_item: Any) -> Any:
         """
         Resolve SSM parameter if config item contains ssm_param key.
@@ -71,25 +79,34 @@ class Config:
         # Check if this is an SSM parameter reference
         ssm_param = config_item.get('ssm_param')
         if not ssm_param:
-            return config_item
+            # Not an SSM reference, could be a nested config dict
+            # Recursively resolve if it has nested dicts
+            return self._resolve_nested_config(config_item)
             
         # Check cache first
         if ssm_param in self._resolved_cache:
             logger.debug(f"Using cached value for SSM parameter: {ssm_param}")
             return self._resolved_cache[ssm_param]
             
-        # Resolve from SSM if client available
-        if self.ssm_client:
+        # Resolve from SSM if enabled and client available
+        if self.use_ssm and self.ssm_client:
             try:
-                # TODO: Implement SSM parameter retrieval
-                # response = self.ssm_client.get_parameter(Name=ssm_param, WithDecryption=True)
-                # value = response['Parameter']['Value']
-                # self._resolved_cache[ssm_param] = value
-                # logger.info(f"Resolved SSM parameter: {ssm_param}")
-                # return value
-                pass
+                response = self.ssm_client.get_parameter(
+                    Name=ssm_param,
+                    WithDecryption=True
+                )
+                value = response['Parameter']['Value']
+                self._resolved_cache[ssm_param] = value
+                logger.info(f"Resolved SSM parameter: {ssm_param} = {value}")
+                return value
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                if error_code == 'ParameterNotFound':
+                    logger.warning(f"SSM parameter not found: {ssm_param}")
+                else:
+                    logger.warning(f"Failed to resolve SSM parameter {ssm_param}: {e}")
             except Exception as e:
-                logger.warning(f"Failed to resolve SSM parameter {ssm_param}: {e}")
+                logger.warning(f"Unexpected error resolving SSM parameter {ssm_param}: {e}")
         
         # Fall back to default value if provided
         default_value = config_item.get('default')
@@ -97,9 +114,9 @@ class Config:
             logger.info(f"Using default value for {ssm_param}: {default_value}")
             return default_value
             
-        # If no default, log warning and return the config item
+        # If no default, log warning and return None
         logger.warning(f"No value found for SSM parameter {ssm_param} and no default provided")
-        return config_item
+        return None
         
     def _resolve_nested_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -114,7 +131,7 @@ class Config:
         resolved = {}
         for key, value in config.items():
             if isinstance(value, dict):
-                # Check if this is an SSM param reference or nested config
+                # Check if this is an SSM param reference
                 if 'ssm_param' in value:
                     resolved[key] = self._resolve_ssm_value(value)
                 else:
@@ -122,83 +139,202 @@ class Config:
                     resolved[key] = self._resolve_nested_config(value)
             elif isinstance(value, list):
                 # Resolve list items
-                resolved[key] = [self._resolve_ssm_value(item) for item in value]
+                resolved[key] = [
+                    self._resolve_ssm_value(item) if isinstance(item, dict) else item
+                    for item in value
+                ]
             else:
                 resolved[key] = value
         return resolved
         
-    def get(self, key: str, default: Any = None, resolve_ssm: bool = True) -> Any:
+    def get(self, key: str, default: Any = None) -> Any:
         """
         Get configuration value by dot-notation key.
         
         Args:
-            key: Configuration key (e.g., 'aws.ec2.instance_id')
+            key: Configuration key (e.g., 'ec2.instance_id' or 'model.name')
             default: Default value if key not found
-            resolve_ssm: Whether to resolve SSM parameters
             
         Returns:
-            Configuration value
-        """
-        # TODO: Implement nested key lookup
-        # parts = key.split('.')
-        # value = self._aws_config if parts[0] == 'aws' else self._training_config
-        # for part in parts[1:]:
-        #     value = value.get(part, {})
-        # 
-        # if resolve_ssm and isinstance(value, dict) and 'ssm_param' in value:
-        #     return self._resolve_ssm_value(value)
-        # 
-        # return value if value != {} else default
+            Configuration value (SSM parameters are automatically resolved)
         
-        return default
-        
-    def get_all_resolved(self, config_type: str = 'all') -> Dict[str, Any]:
+        Examples:
+            >>> config = ConfigLoader('config/aws_config.yml')
+            >>> instance_id = config.get('ec2.instance_id')
+            >>> bucket = config.get('s3.bucket')
         """
-        Get all configuration with SSM parameters resolved.
+        parts = key.split('.')
+        value = self._raw_config
+        
+        # Navigate through nested dict
+        for part in parts:
+            if isinstance(value, dict):
+                value = value.get(part)
+                if value is None:
+                    logger.debug(f"Key not found: {key}, using default: {default}")
+                    return default
+            else:
+                logger.debug(f"Cannot navigate further in key: {key}, using default: {default}")
+                return default
+        
+        # Resolve SSM parameter if applicable
+        if isinstance(value, dict) and 'ssm_param' in value:
+            resolved = self._resolve_ssm_value(value)
+            return resolved if resolved is not None else default
+        
+        return value if value is not None else default
+        
+    def get_all_resolved(self) -> Dict[str, Any]:
+        """
+        Get entire configuration with all SSM parameters resolved.
+        
+        Returns:
+            Fully resolved configuration dictionary
+        """
+        return self._resolve_nested_config(self._raw_config)
+        
+    def get_raw(self) -> Dict[str, Any]:
+        """
+        Get raw configuration without SSM resolution.
+        
+        Returns:
+            Raw configuration dictionary
+        """
+        return self._raw_config.copy()
+        
+    def validate_required_keys(self, required_keys: list) -> bool:
+        """
+        Validate that required keys exist in configuration.
         
         Args:
-            config_type: 'aws', 'training', or 'all'
+            required_keys: List of required keys in dot notation
             
         Returns:
-            Fully resolved configuration
+            True if all required keys exist
+            
+        Raises:
+            ValueError: If any required key is missing
         """
-        if config_type == 'aws':
-            return self._resolve_nested_config(self._aws_config)
-        elif config_type == 'training':
-            return self._resolve_nested_config(self._training_config)
-        else:
-            return {
-                'aws': self._resolve_nested_config(self._aws_config),
-                'training': self._resolve_nested_config(self._training_config)
-            }
+        missing_keys = []
+        for key in required_keys:
+            value = self.get(key)
+            if value is None:
+                missing_keys.append(key)
         
-    def validate(self) -> bool:
-        """
-        Validate all configurations.
+        if missing_keys:
+            error_msg = f"Missing required configuration keys: {', '.join(missing_keys)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
-        Returns:
-            True if valid, raises exception otherwise
-        """
-        # TODO: Check required fields are present
-        # TODO: Validate field types and formats
-        # TODO: Ensure critical SSM parameters can be resolved
-        
+        logger.info("All required configuration keys present")
         return True
+        
+    def reload(self) -> None:
+        """Reload configuration from file and clear cache."""
+        logger.info("Reloading configuration...")
+        self._resolved_cache.clear()
+        self._load_yaml()
+        logger.info("Configuration reloaded successfully")
 
 
-def load_config(config_dir: str = "config", ssm_client=None) -> Config:
+class MultiConfigLoader:
+    """Load and manage multiple configuration files."""
+    
+    def __init__(self, config_dir: str = "config", use_ssm: bool = True, region: str = "us-east-1"):
+        """
+        Initialize multi-config loader.
+        
+        Args:
+            config_dir: Directory containing config files
+            use_ssm: Whether to resolve SSM parameters
+            region: AWS region for SSM client
+        """
+        self.config_dir = Path(config_dir)
+        self.use_ssm = use_ssm
+        self.region = region
+        
+        # Load all configs
+        self.aws_config = self._load_if_exists('aws_config.yml')
+        self.training_config = self._load_if_exists('training_config.yml')
+        
+        logger.info("All configurations loaded successfully")
+        
+    def _load_if_exists(self, filename: str) -> Optional[ConfigLoader]:
+        """Load config file if it exists."""
+        config_path = self.config_dir / filename
+        if config_path.exists():
+            logger.info(f"Loading {filename}")
+            return ConfigLoader(str(config_path), use_ssm=self.use_ssm, region=self.region)
+        else:
+            logger.warning(f"Configuration file not found: {config_path}")
+            return None
+            
+    def get_aws(self, key: str, default: Any = None) -> Any:
+        """Get value from AWS configuration."""
+        if self.aws_config:
+            return self.aws_config.get(key, default)
+        return default
+        
+    def get_training(self, key: str, default: Any = None) -> Any:
+        """Get value from training configuration."""
+        if self.training_config:
+            return self.training_config.get(key, default)
+        return default
+        
+    def get_all_resolved(self) -> Dict[str, Any]:
+        """Get all configurations fully resolved."""
+        result = {}
+        if self.aws_config:
+            result['aws'] = self.aws_config.get_all_resolved()
+        if self.training_config:
+            result['training'] = self.training_config.get_all_resolved()
+        return result
+
+
+# Convenience function for simple use cases
+def load_config(
+    config_path: str,
+    use_ssm: bool = True,
+    region: str = "us-east-1"
+) -> ConfigLoader:
     """
-    Load all configurations.
+    Load a single configuration file.
     
     Args:
-        config_dir: Configuration directory path
-        ssm_client: Optional AWS SSM client for parameter resolution
+        config_path: Path to YAML configuration file
+        use_ssm: Whether to resolve SSM parameters (set False for local testing)
+        region: AWS region for SSM client
         
     Returns:
-        Config instance with loaded configurations
+        ConfigLoader instance
+        
+    Example:
+        >>> config = load_config('config/aws_config.yml')
+        >>> instance_id = config.get('ec2.instance_id')
     """
-    config = Config(config_dir, ssm_client)
-    config.load_aws_config()
-    config.load_training_config()
-    config.validate()
-    return config
+    return ConfigLoader(config_path, use_ssm=use_ssm, region=region)
+
+
+# Convenience function for loading all configs
+def load_all_configs(
+    config_dir: str = "config",
+    use_ssm: bool = True,
+    region: str = "us-east-1"
+) -> MultiConfigLoader:
+    """
+    Load all configuration files from a directory.
+    
+    Args:
+        config_dir: Directory containing config files
+        use_ssm: Whether to resolve SSM parameters
+        region: AWS region for SSM client
+        
+    Returns:
+        MultiConfigLoader instance
+        
+    Example:
+        >>> configs = load_all_configs('config')
+        >>> instance_id = configs.get_aws('ec2.instance_id')
+        >>> model_name = configs.get_training('model.name')
+    """
+    return MultiConfigLoader(config_dir, use_ssm=use_ssm, region=region)
