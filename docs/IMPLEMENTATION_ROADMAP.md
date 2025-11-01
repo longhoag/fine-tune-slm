@@ -218,12 +218,36 @@ print(config.get('ec2.instance_id'))
 
 **Status**: PENDING
 
-**Goal**: Complete src/train.py with LoRA fine-tuning logic
+**Goal**: Complete src/train.py with QLoRA (4-bit quantization + LoRA) fine-tuning logic
+
+**Why QLoRA (4-bit + LoRA)?**
+- **Memory efficiency**: 8B model fits in 24GB VRAM (~12GB used vs ~30GB without quantization)
+- **Cost savings**: Works on g6.2xlarge ($0.75/hr) instead of needing g6.12xlarge ($3.00/hr)
+- **Quality preserved**: <1% accuracy loss, LoRA adapters trained in full precision (FP16/BF16)
+- **Proven technique**: Industry standard for efficient fine-tuning (thousands of models on HF Hub)
+
+**VRAM Breakdown**:
+```
+With QLoRA (fits g6.2xlarge 24GB):
+- Model (4-bit NF4):        ~4 GB
+- LoRA adapters (FP16):     ~100 MB
+- Gradients (LoRA only):    ~200 MB
+- Optimizer states:         ~400 MB
+- Activations/batch:        ~6 GB
+- Total:                    ~11 GB ✅
+
+Without quantization (needs 28-30GB):
+- Model (FP16):             ~16 GB
+- Gradients:                ~8 GB
+- Optimizer states:         ~4 GB
+- Activations/batch:        ~6 GB
+- Total:                    ~34 GB ❌ Won't fit on g6.2xlarge!
+```
 
 **Tasks**:
 - [ ] Implement dataset loading from JSONL
-- [ ] Load Llama 3.1 8B model with 4-bit quantization
-- [ ] Configure LoRA parameters (r=16, alpha=32)
+- [ ] Load Llama 3.1 8B model with 4-bit quantization (NF4)
+- [ ] Configure LoRA parameters (r=16, alpha=32, target_modules for Llama)
 - [ ] Set up Trainer with configuration
 - [ ] Implement checkpoint saving to EBS mount
 - [ ] Add CloudWatch logging integration
@@ -240,16 +264,25 @@ def load_dataset(train_path, val_path):
     # Format for instruction tuning
     # Return datasets.Dataset objects
 
-# Model loading
+# Model loading (QLoRA approach)
 def load_model_and_tokenizer(model_name, use_4bit=True):
-    # Load with BitsAndBytesConfig
+    # Configure 4-bit quantization with BitsAndBytesConfig
+    # - compute_dtype: bfloat16 (for computations)
+    # - quant_type: nf4 (Normal Float 4-bit)
+    # - use_nested_quant: True (double quantization)
+    
+    # Load model with quantization
     # Apply LoRA with PEFT
+    # - r=16 (rank), alpha=32 (scaling)
+    # - target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"] (attention layers)
+    # - LoRA adapters stay in FP16 for quality
+    
     # Return model, tokenizer, peft_config
 
 # Training
 def main():
     # Load configs
-    # Initialize model
+    # Initialize model with QLoRA
     # Set up Trainer
     # Train and save checkpoints
 ```
