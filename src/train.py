@@ -494,7 +494,7 @@ def main():
             
             s3_mgr = S3Manager(aws_client)
             s3_mgr.upload_directory(
-                local_dir=final_model_path,
+                local_path=final_model_path,
                 bucket=s3_bucket,
                 prefix=f"{s3_prefix}/final_model",
             )
