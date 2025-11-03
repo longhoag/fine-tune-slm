@@ -214,9 +214,9 @@ print(config.get('ec2.instance_id'))
 
 ---
 
-## Phase 6: Implement Training Script Foundation 🔄
+## Phase 6: Implement Training Script Foundation ✅
 
-**Status**: PENDING
+**Status**: COMPLETED
 
 **Goal**: Complete src/train.py with QLoRA (4-bit quantization + LoRA) fine-tuning logic
 
@@ -296,9 +296,9 @@ def main():
 
 ---
 
-## Phase 7: Local Testing (No GPU Required) 🔄
+## Phase 7: Local Testing (No GPU Required) ✅
 
-**Status**: PENDING
+**Status**: COMPLETED
 
 **Goal**: Test configuration loading, dataset validation, and model initialization locally
 
