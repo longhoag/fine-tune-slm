@@ -299,7 +299,7 @@ def setup_trainer(
         save_total_limit=training_config['save_total_limit'],
         fp16=training_config['fp16'],
         optim=training_config['optim'],
-        evaluation_strategy=training_config['evaluation_strategy'],
+        eval_strategy=training_config['evaluation_strategy'],
         load_best_model_at_end=training_config['load_best_model_at_end'],
         metric_for_best_model=training_config['metric_for_best_model'],
         report_to=["tensorboard"],  # Log to TensorBoard

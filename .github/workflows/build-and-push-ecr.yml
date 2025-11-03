@@ -67,36 +67,23 @@ jobs:
           echo "Disk space before build:"
           df -h
           
-          # Build Docker image with cache from ECR
-          # This pulls the 'latest' tag to use as build cache
-          docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest || echo "No cache image found, building from scratch"
-          
-          DOCKER_BUILDKIT=1 docker build \
+          # Build Docker image with ECR-based cache (no 10GB limit)
+          # Cache stored in ECR as: fine-tune-llama:buildcache
+          DOCKER_BUILDKIT=1 docker buildx build \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
             -f docker/Dockerfile \
-            --cache-from $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --cache-from type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:buildcache \
+            --cache-to type=registry,ref=$ECR_REGISTRY/$ECR_REPOSITORY:buildcache,mode=max \
+            --push \
             --progress=plain \
             .
           
           echo "Disk space after build:"
           df -h
           
-          # Tag as latest
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          
-          # Push both tags to ECR
-          echo "Pushing image with commit SHA tag: $IMAGE_TAG"
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          
-          echo "Pushing image with latest tag"
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          
-          # Clean up local images to free space
-          docker rmi $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG || true
-          docker rmi $ECR_REGISTRY/$ECR_REPOSITORY:latest || true
-          
           echo "✅ Successfully pushed images to ECR"
+          echo "Cache stored in ECR as: $ECR_REGISTRY/$ECR_REPOSITORY:buildcache"
 
       - name: Image digest
         env:
