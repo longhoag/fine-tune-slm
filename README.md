@@ -4,7 +4,7 @@ This project is to fine tune sLM Llama 3.1 8B model using LoRA technique from Hu
 The current architecture design of the prject as follows: 
 - The dataset is synthetic, curated and split into train and validation set in the synthetic-instruction-tuning-dataset/ folder. The training set has 4500 entries, and the validation set has 500 entries. One entry of the data is: {"instruction": "Extract all cancer-related entities from the text.", "input": "70-year-old man with widely metastatic cutaneous melanoma. PD-L1 was 5% on IHC and NGS reported TMB-high; BRAF testing was not performed prior to treatment. Given multiple symptomatic brain metastases he received combination immunotherapy with nivolumab plus ipilimumab and stereotactic radiosurgery to dominant intracranial lesions. Imaging after two cycles demonstrated some shrinking of index lesions but appearance of a new small lesion \u2014 overall assessment called a mixed response.", "output": {"cancer_type": "melanoma (cutaneous)", "stage": "IV", "gene_mutation": null, "biomarker": "PD-L1 5%; TMB-high", "treatment": "nivolumab and ipilimumab; stereotactic radiosurgery", "response": "mixed response", "metastasis_site": "brain"}}
 - Retrieve the Llama 3.1 8B model via Hugging Face
-- Running the fine tune scripts on EC2. Suggest type of EC2 instance I should use for this project. According to my research, I'm targeting g5 with VRAM greater or equal than 16 gB, cost-efficient and powerful enough
+- Running the fine tune scripts on EC2. Suggest type of EC2 instance I should use for this project. According to my research, I'm targeting g5 with VRAM greater or equal than 16 gB, cost-efficient and powerful enough.
 
 Planned CI/CD pipeline:
 - Github actions (fully automated): build docker image and push to ECR
