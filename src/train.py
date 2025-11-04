@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fine-tuning script for Llama 3.1 8B with QLoRA (4-bit quantization + LoRA).
+Fine-tuning script for Llama 3.1 8B with QLoRA (4-bit quantization + LoRA)
 
 This script implements:
 - Dataset loading from JSONL files
