@@ -161,9 +161,9 @@ PARAM_COUNT=$(aws ssm get-parameters-by-path \
     --path /fine-tune-slm \
     --recursive \
     --query 'length(Parameters)' \
-    --output text 2>/dev/null)
+    --output text 2>/dev/null | tr -d '\n' | tr -d ' ')
 
-if [ "$PARAM_COUNT" -ge 15 ]; then
+if [ -n "$PARAM_COUNT" ] && [ "$PARAM_COUNT" -ge 15 ] 2>/dev/null; then
     check_pass "SSM Parameters: $PARAM_COUNT found"
 else
     check_warn "SSM Parameters: $PARAM_COUNT found (expected ~17)"

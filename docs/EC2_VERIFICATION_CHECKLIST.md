@@ -262,18 +262,20 @@ aws ssm get-command-invocation \
 ```
 Success
 SSM Test: Mon Nov 4 12:34:56 UTC 2025
-ubuntu
-/home/ubuntu
+root (or ssm-user)
+/var/snap/amazon-ssm-agent/xxxxx
 Filesystem      Size  Used Avail Use% Mounted on
-/dev/xvda1       98G   15G   83G  16% /
+/dev/root        97G   21G   76G  22% /
+/dev/mapper/vg.01-lv_ephemeral  412G   28K  391G   1% /opt/dlami/nvme
 ...
 ```
 
 **Verify:**
 - ✅ Status: `Success`
 - ✅ Commands executed successfully
-- ✅ User is `ubuntu` or `ssm-user`
+- ✅ User is `root`, `ubuntu`, or `ssm-user`
 - ✅ Root filesystem has space available
+- ✅ Instance store visible at `/opt/dlami/nvme` (450GB ephemeral storage)
 
 ---
 
@@ -344,14 +346,34 @@ aws ec2 describe-security-groups \
   --group-ids $SECURITY_GROUP_ID \
   --query 'SecurityGroups[0].IpPermissions[*].[IpProtocol,FromPort,ToPort,IpRanges[0].CidrIp]' \
   --output table
+
+# Check outbound rules (more important for SSM)
+aws ec2 describe-security-groups \
+  --group-ids $SECURITY_GROUP_ID \
+  --query 'SecurityGroups[0].IpPermissionsEgress[*].[IpProtocol,FromPort,ToPort,IpRanges[0].CidrIp]' \
+  --output table
 ```
 
-**Minimum Required:**
-- ✅ Outbound: All traffic (0.0.0.0/0) - for SSM, S3, ECR access
-- ⚠️ Inbound: None required (SSM doesn't need SSH)
+**Expected Inbound Rules:**
+- ✅ **Empty or no output is CORRECT** - SSM doesn't require any inbound ports!
+- ⚠️ SSM Session Manager uses **outbound-only** connections (EC2 → AWS SSM endpoints)
+- ⚠️ No SSH (port 22) needed - more secure than traditional SSH access
 
-**Optional (if you want SSH access):**
-- Port 22 (TCP) from your IP
+**Expected Outbound Rules:**
+- ✅ All traffic (Protocol: -1) to 0.0.0.0/0, OR
+- ✅ HTTPS (Protocol: tcp, Port: 443) to 0.0.0.0/0
+
+**If outbound rules are missing, add them:**
+```bash
+# Allow all outbound traffic (standard default)
+aws ec2 authorize-security-group-egress \
+  --group-id $SECURITY_GROUP_ID \
+  --ip-permissions IpProtocol=-1,IpRanges='[{CidrIp=0.0.0.0/0}]'
+```
+
+**Verify:**
+- ✅ **Inbound: Empty is OK** (SSM doesn't need inbound ports)
+- ✅ **Outbound: Must allow HTTPS** (for SSM, S3, ECR, Secrets Manager)
 
 ---
 
@@ -440,6 +462,47 @@ EOF
 
 ---
 
+### 6.3 Test Parameter Retrieval on EC2 (via SSM Session Manager)
+
+When running AWS CLI commands **inside the EC2 instance** (via Session Manager), you need to set the region:
+
+```bash
+# Start SSM session
+aws ssm start-session --target $INSTANCE_ID
+
+# Once connected on EC2, set region and test parameter retrieval:
+export AWS_DEFAULT_REGION=us-east-1
+
+# Test retrieving SSM parameters
+ECR_REGISTRY=$(aws ssm get-parameter \
+  --name /fine-tune-slm/ecr/registry \
+  --query 'Parameter.Value' \
+  --output text)
+
+echo "ECR Registry: $ECR_REGISTRY"
+
+# Test retrieving secret name
+HF_SECRET_NAME=$(aws ssm get-parameter \
+  --name /fine-tune-slm/secrets/hf-token-name \
+  --query 'Parameter.Value' \
+  --output text)
+
+echo "HF Secret Name: $HF_SECRET_NAME"
+
+# Exit SSM session
+exit
+```
+
+**Expected Output:**
+```
+ECR Registry: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+HF Secret Name: huggingface/api-token
+```
+
+**⚠️ Important:** The EC2 instance uses its **IAM instance role** for credentials (automatic), but you must **explicitly set the region** when running AWS CLI commands on the instance.
+
+---
+
 ## 7. Docker and GPU Verification
 
 ### 7.1 Test Docker on EC2
@@ -483,7 +546,7 @@ nvidia-smi
 
 # Expected output:
 # +-----------------------------------------------------------------------------+
-# | NVIDIA-SMI 535.xx.xx    Driver Version: 535.xx.xx    CUDA Version: 12.x   |
+# | NVIDIA-SMI 580.xx.xx    Driver Version: 580.xx.xx    CUDA Version: 13.0   |
 # |-------------------------------+----------------------+----------------------+
 # | GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
 # | Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
@@ -493,9 +556,11 @@ nvidia-smi
 # | N/A   28C    P8    15W /  72W |      0MiB / 23034MiB |      0%      Default |
 # +-------------------------------+----------------------+----------------------+
 
-# Check CUDA
+# Check if nvcc is available (optional - not needed for PyTorch training)
 nvcc --version
-# Expected: CUDA compilation tools, release 12.x
+# Note: nvcc may not be found - this is NORMAL and expected
+# nvcc is only needed for compiling CUDA code, not for running PyTorch
+# Your Docker container has all necessary CUDA runtime libraries
 
 # Test GPU with Docker
 sudo docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
@@ -505,21 +570,27 @@ sudo docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
 **Verify:**
 - ✅ GPU detected: NVIDIA L4
 - ✅ VRAM: ~23 GB available
-- ✅ CUDA version: 12.x
-- ✅ Driver version: 535+
+- ✅ CUDA version: 12.x or 13.0
+- ✅ Driver version: 535+ or 580+
 - ✅ Docker can access GPU
+- ⚠️ `nvcc` not found is **expected and OK** (only needed for compiling CUDA code)
 
 ---
 
 ### 7.3 Test ECR Login and Image Pull
 
-**On EC2 instance:**
+**On EC2 instance (via SSM Session Manager):**
 ```bash
-# Get ECR registry URL
+# IMPORTANT: Set AWS region first (required for EC2 instance)
+export AWS_DEFAULT_REGION=us-east-1
+
+# Get ECR registry URL from SSM Parameter Store
 ECR_REGISTRY=$(aws ssm get-parameter \
   --name /fine-tune-slm/ecr/registry \
   --query 'Parameter.Value' \
   --output text)
+
+echo "ECR Registry: $ECR_REGISTRY"
 
 # Login to ECR
 aws ecr get-login-password --region us-east-1 | \
@@ -530,13 +601,16 @@ docker pull $ECR_REGISTRY/fine-tune-llama:latest
 
 # Verify image
 docker images | grep fine-tune-llama
-# Should show your image (~12 GB)
+# Should show your image (~9 GB)
 ```
 
 **Verify:**
-- ✅ ECR login successful
+- ✅ ECR registry URL retrieved from SSM
+- ✅ ECR login successful ("Login Succeeded")
 - ✅ Image pulled successfully
-- ✅ Image size ~12 GB
+- ✅ Image size ~9 GB
+
+**⚠️ Note:** If you get "You must specify a region" error, make sure you ran `export AWS_DEFAULT_REGION=us-east-1` first.
 
 ---
 
