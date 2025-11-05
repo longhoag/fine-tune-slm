@@ -202,7 +202,11 @@ class SSMManager:
             }
             
         except ClientError as e:
-            logger.error(f"Failed to get command output: {e}")
+            # InvocationDoesNotExist is expected when command is just registered
+            if 'InvocationDoesNotExist' in str(e):
+                logger.debug(f"Command invocation not yet available (expected): {e}")
+            else:
+                logger.error(f"Failed to get command output: {e}")
             raise
             
     def wait_for_command(
