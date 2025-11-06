@@ -287,7 +287,8 @@ def setup_trainer(
     # Configure training arguments
     training_args = TrainingArguments(
         output_dir=output_dir,
-        num_train_epochs=training_config['num_train_epochs'],
+        num_train_epochs=training_config.get('num_train_epochs'),
+        max_steps=training_config.get('max_steps', -1),  # -1 means use epochs
         per_device_train_batch_size=training_config['per_device_train_batch_size'],
         per_device_eval_batch_size=training_config['per_device_eval_batch_size'],
         gradient_accumulation_steps=training_config['gradient_accumulation_steps'],
@@ -373,6 +374,12 @@ def main():
         default=None,
         help="Override output directory from config",
     )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=None,
+        help="Override max training steps (useful for testing)",
+    )
     
     args = parser.parse_args()
     
@@ -455,6 +462,13 @@ def main():
         # 5. Setup Trainer
         # ====================================================================
         logger.info("\n⚙️  Setting up trainer...")
+        
+        # Override max_steps if specified (for testing)
+        if args.max_steps:
+            logger.info(f"⚠️  Overriding max_steps to {args.max_steps} (test mode)")
+            training_config['max_steps'] = args.max_steps
+            training_config['num_train_epochs'] = None  # Disable epochs when using max_steps
+        
         trainer = setup_trainer(
             model=model,
             tokenizer=tokenizer,

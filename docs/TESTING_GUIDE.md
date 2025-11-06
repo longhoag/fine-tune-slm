@@ -1,0 +1,286 @@
+# Testing Guide for Fine-Tuning Scripts
+
+This guide explains how to test the fine-tuning environment without actually running a full training job.
+
+## Overview
+
+We have **3 testing modes** to verify the environment is ready before committing to a 3-4 hour training run:
+
+1. **Dry Run Mode** (`--dry-run`) - Validates environment without any training
+2. **Test Mode** (`--test`) - Runs 5 training steps to verify everything works
+3. **Full Training** - Runs complete training (3-4 hours)
+
+## Prerequisites
+
+Before testing, ensure you have:
+
+1. ✅ EC2 instance running: `python scripts/setup/start_ec2.py`
+2. ✅ Environment deployed: `python scripts/setup/deploy_via_ssm.py`
+3. ✅ Docker image pulled and GPU verified (from deploy script)
+4. ✅ EBS volume mounted at `/mnt/training`
+
+## Testing Modes
+
+### 1. Dry Run Mode (Recommended First Step)
+
+**Purpose**: Validates that all components are configured correctly without training.
+
+**What it checks**:
+- ✅ Configuration files load properly
+- ✅ AWS credentials and permissions work
+- ✅ Dataset files are accessible
+- ✅ HuggingFace token is valid
+- ✅ Model can be loaded (Llama 3.1 8B)
+- ✅ Tokenizer initializes
+- ✅ GPU is available and compatible
+- ✅ Output directory is writable
+
+**How to run**:
+```bash
+python scripts/finetune/run_training.py --dry-run
+```
+
+**Expected output**:
+```
+====================================================
+Running Fine-Tuning on EC2 Instance
+====================================================
+Instance ID: i-0ad7db4eb23bd2df8
+Region: us-east-1
+ECR Image: 855386719590.dkr.ecr.us-east-1.amazonaws.com/fine-tune-llama:latest
+
+Verifying instance state...
+Instance is running ✓
+Verifying SSM connectivity...
+Instance is running and SSM is online! ✓
+
+============================================================
+Starting Fine-Tuning: DRY RUN (Environment Validation Only)
+============================================================
+
+Training command:
+docker run --rm --gpus all -v /mnt/training:/mnt/training -v /home/ubuntu/fine-tune-slm:/workspace -w /workspace 855386719590.dkr.ecr.us-east-1.amazonaws.com/fine-tune-llama:latest python -m src.train --use-ssm --output-dir /mnt/training/checkpoints --dry-run
+
+Sending training command via SSM...
+Command sent! Command ID: abc123...
+
+⏳ Waiting for training to complete (timeout: 600s)...
+
+Training completed with status: Success
+✅ Training completed successfully!
+
+Output:
+Loading configuration...
+✅ Model: meta-llama/Llama-3.1-8B
+✅ Output directory: /mnt/training/checkpoints
+✅ Retrieved HF token from Secrets Manager
+✅ Loading tokenizer...
+✅ Loading model with 4-bit quantization...
+✅ GPU available: NVIDIA L4 (24GB)
+✅ Loading datasets...
+✅ Loaded 4500 training examples
+✅ Loaded 500 validation examples
+✅ Applying LoRA configuration...
+✅ All checks passed! Environment is ready for training.
+DRY RUN COMPLETE - No training performed
+```
+
+**Duration**: ~2-3 minutes
+
+**Cost**: ~$0.03 (3 minutes × $0.7512/hour)
+
+### 2. Test Mode (Verify Training Works)
+
+**Purpose**: Runs a minimal training job (5 steps) to verify the complete training pipeline works.
+
+**What it tests**:
+- ✅ Everything from dry run, PLUS:
+- ✅ Training loop executes
+- ✅ Forward pass works
+- ✅ Backward pass and gradient computation works
+- ✅ Optimizer updates weights
+- ✅ Checkpoint saving works
+- ✅ Loss is being calculated
+- ✅ GPU memory is sufficient
+
+**How to run**:
+```bash
+python scripts/finetune/run_training.py --test
+```
+
+**Expected output**:
+```
+============================================================
+Starting Fine-Tuning: TEST MODE (5 steps to verify setup)
+============================================================
+
+Training command:
+docker run --rm --gpus all -v /mnt/training:/mnt/training -v /home/ubuntu/fine-tune-slm:/workspace -w /workspace 855386719590.dkr.ecr.us-east-1.amazonaws.com/fine-tune-llama:latest python -m src.train --use-ssm --output-dir /mnt/training/checkpoints --max-steps 5
+
+Sending training command via SSM...
+Command sent! Command ID: def456...
+
+⏳ Waiting for training to complete (timeout: 600s)...
+
+Output:
+Loading configuration...
+✅ Model loaded with LoRA
+✅ Training dataset: 4500 examples
+✅ Validation dataset: 500 examples
+Starting training...
+
+{'loss': 2.8453, 'learning_rate': 1.99e-04, 'epoch': 0.0, 'step': 1}
+{'loss': 2.7891, 'learning_rate': 1.98e-04, 'epoch': 0.0, 'step': 2}
+{'loss': 2.7234, 'learning_rate': 1.97e-04, 'epoch': 0.0, 'step': 3}
+{'loss': 2.6891, 'learning_rate': 1.96e-04, 'epoch': 0.0, 'step': 4}
+{'loss': 2.6523, 'learning_rate': 1.95e-04, 'epoch': 0.0, 'step': 5}
+
+Saving checkpoint to /mnt/training/checkpoints/checkpoint-5
+Training completed successfully!
+
+Next steps:
+  1. Check model artifacts: ls /mnt/training/checkpoints
+  2. Push to HuggingFace: python scripts/finetune/push_to_hf.py
+  3. Stop instance: python scripts/setup/stop_ec2.py
+```
+
+**Duration**: ~5-7 minutes
+
+**Cost**: ~$0.05 (7 minutes × $0.7512/hour)
+
+**What to verify**:
+- ✅ Loss is decreasing (even slightly)
+- ✅ No CUDA out of memory errors
+- ✅ Checkpoint directory created at `/mnt/training/checkpoints/checkpoint-5`
+- ✅ No Python errors or warnings
+
+### 3. Full Training
+
+**Purpose**: Run the complete fine-tuning job.
+
+**How to run**:
+```bash
+# Run in foreground (blocks until complete, ~3-4 hours)
+python scripts/finetune/run_training.py
+
+# OR run in background (returns immediately)
+python scripts/finetune/run_training.py --background
+```
+
+**Background mode output**:
+```
+============================================================
+Starting Fine-Tuning: FULL TRAINING
+============================================================
+
+Command sent! Command ID: ghi789...
+
+🎯 Running in background mode
+Command ID: ghi789...
+
+To check status:
+  aws ssm get-command-invocation --command-id ghi789... --instance-id i-0ad7db4eb23bd2df8
+
+To view CloudWatch logs:
+  aws logs tail /aws/ssm/fine-tune-llama --follow
+```
+
+**Duration**: 3-4 hours
+
+**Cost**: ~$2.25 (3 hours × $0.7512/hour)
+
+## Complete Testing Workflow
+
+Here's the recommended step-by-step testing process:
+
+```bash
+# 1. Start EC2 instance (~23 seconds)
+python scripts/setup/start_ec2.py
+
+# 2. Deploy environment (~20 seconds if cached)
+python scripts/setup/deploy_via_ssm.py
+
+# 3. DRY RUN - Validate configuration (~3 minutes, $0.03)
+python scripts/finetune/run_training.py --dry-run
+
+# 4. TEST MODE - Verify training works (~7 minutes, $0.05)
+python scripts/finetune/run_training.py --test
+
+# 5. If test passed, run full training in background
+python scripts/finetune/run_training.py --background
+
+# 6. (Optional) Monitor training
+aws logs tail /aws/ssm/fine-tune-llama --follow
+
+# 7. After training completes (~3-4 hours later)
+#    - Copy to S3 and push to HuggingFace
+python scripts/finetune/push_to_hf.py
+
+# 8. Stop instance to save costs
+python scripts/setup/stop_ec2.py
+```
+
+## Troubleshooting
+
+### Issue: Dry run fails with "HuggingFace token invalid"
+
+**Solution**: Check that the HF token is stored in AWS Secrets Manager:
+```bash
+aws secretsmanager get-secret-value --secret-id /fine-tune-slm/huggingface/token --query SecretString --output text
+```
+
+### Issue: Test mode fails with CUDA out of memory
+
+**Solution**: This means the model or batch size is too large. Check:
+1. Training config uses 4-bit quantization (`quantization.load_in_4bit: true`)
+2. Batch size is reasonable (`training.per_device_train_batch_size: 1`)
+3. Gradient accumulation is set (`training.gradient_accumulation_steps: 4`)
+
+### Issue: Checkpoint directory not found
+
+**Solution**: Verify EBS volume is mounted:
+```bash
+# SSH into instance or use SSM
+aws ssm start-session --target i-0ad7db4eb23bd2df8
+
+# Check mount
+df -h | grep /mnt/training
+
+# If not mounted, run deploy again
+python scripts/setup/deploy_via_ssm.py
+```
+
+### Issue: Training hangs or takes too long
+
+**Solution**: Check CloudWatch logs for errors:
+```bash
+aws logs tail /aws/ssm/fine-tune-llama --follow --since 10m
+```
+
+## Cost Breakdown for Testing
+
+| Test Mode | Duration | Cost | What It Verifies |
+|-----------|----------|------|------------------|
+| Dry Run | 3 min | $0.03 | Environment setup |
+| Test Mode | 7 min | $0.05 | Training pipeline |
+| Full Training | 3-4 hrs | $2.25 | Complete fine-tuning |
+| **Total Testing** | **10 min** | **$0.08** | **Everything works** |
+
+**Recommendation**: Spend $0.08 on testing to avoid wasting $2.25 on a broken full training run!
+
+## Next Steps
+
+After successful testing:
+
+1. ✅ Test scripts passed → Run full training
+2. ✅ Training completed → Push to HuggingFace
+3. ✅ Model published → Stop EC2 instance
+4. ✅ Instance stopped → Celebrate! 🎉
+
+**Total cost for one complete fine-tuning run**:
+- Testing: $0.08
+- Training: $2.25
+- Publishing: $0.05
+- **Total: ~$2.38**
+
+Compare to: Always-on instance = $541/month! 💰
