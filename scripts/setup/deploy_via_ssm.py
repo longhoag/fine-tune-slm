@@ -10,12 +10,12 @@ This script:
 5. Sets up environment for training
 
 Usage:
-    python scripts/setup/deploy_via_ssm.py [--config-dir CONFIG_DIR] [--skip-volume] [--skip-docker]
+    poetry run python scripts/setup/deploy_via_ssm.py [--config-dir CONFIG_DIR] [--skip-volume] [--skip-docker]
 
 Example:
-    python scripts/setup/deploy_via_ssm.py
-    python scripts/setup/deploy_via_ssm.py --skip-volume  # Skip EBS setup
-    python scripts/setup/deploy_via_ssm.py --skip-docker  # Skip Docker pull
+    poetry run python scripts/setup/deploy_via_ssm.py
+    poetry run python scripts/setup/deploy_via_ssm.py --skip-volume  # Skip EBS setup
+    poetry run python scripts/setup/deploy_via_ssm.py --skip-docker  # Skip Docker pull
 """
 
 import argparse
@@ -222,11 +222,16 @@ def pull_docker_image(ssm_manager: SSMManager, instance_id: str, ecr_registry: s
         # Login to ECR
         f"aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin {ecr_registry}",
         
-        # Pull the image
+        # Pull the image (always check for updates)
         f"docker pull {ecr_registry}/{repository}:latest",
         
-        # Verify image
-        f"docker images | grep {repository}",
+        # Show image details including digest (unique identifier)
+        "echo '=== Image Details ==='",
+        f"docker images --digests | grep {repository}",
+        
+        # Clean up old untagged images to save disk space
+        "echo '=== Cleaning up old images ==='",
+        "docker image prune -f",
         
         # Test GPU access
         "echo '=== Testing GPU Access ==='",
