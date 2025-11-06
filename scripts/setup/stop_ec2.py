@@ -9,12 +9,12 @@ This script:
 4. Waits for instance to reach 'stopped' state
 
 Usage:
-    python scripts/setup/stop_ec2.py [--config-dir CONFIG_DIR] [--verify-s3] [--force]
+    poetry run python scripts/setup/stop_ec2.py [--config-dir CONFIG_DIR] [--verify-s3] [--force]
 
 Example:
-    python scripts/setup/stop_ec2.py
-    python scripts/setup/stop_ec2.py --verify-s3  # Check S3 before stopping
-    python scripts/setup/stop_ec2.py --force       # Skip confirmation prompt
+    poetry run python scripts/setup/stop_ec2.py
+    poetry run python scripts/setup/stop_ec2.py --verify-s3  # Check S3 before stopping
+    poetry run python scripts/setup/stop_ec2.py --force       # Skip confirmation prompt
 """
 
 import argparse
