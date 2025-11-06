@@ -92,7 +92,7 @@ def verify_s3_artifacts(s3_manager: S3Manager, bucket: str, prefix: str) -> bool
         return False
 
 
-def wait_for_instance_stopped(ec2_manager: EC2Manager, instance_id: str, timeout: int = 300):
+def wait_for_instance_stopped(ec2_manager: EC2Manager, instance_id: str, timeout: int = 500):
     """
     Wait for EC2 instance to reach 'stopped' state.
     
