@@ -10,16 +10,16 @@ This script:
 
 Usage:
     # Dry run - test environment without training
-    python scripts/finetune/run_training.py --dry-run
+    poetry run python scripts/finetune/run_training.py --dry-run
     
     # Test mode - run 1 step to verify everything works
-    python scripts/finetune/run_training.py --test
+    poetry run python scripts/finetune/run_training.py --test
     
     # Full training in background
-    python scripts/finetune/run_training.py --background
-    
+    poetry run python scripts/finetune/run_training.py --background
+
     # Full training with monitoring (blocks until complete)
-    python scripts/finetune/run_training.py
+    poetry run python scripts/finetune/run_training.py
 """
 
 import argparse
@@ -250,16 +250,16 @@ def main():
         epilog="""
 Examples:
   # Test environment without training
-  python scripts/finetune/run_training.py --dry-run
+  poetry run python scripts/finetune/run_training.py --dry-run
   
   # Run 5 training steps to verify everything works
-  python scripts/finetune/run_training.py --test
+  poetry run python scripts/finetune/run_training.py --test
   
   # Full training in background
-  python scripts/finetune/run_training.py --background
-  
+  poetry run python scripts/finetune/run_training.py --background
+
   # Full training with live monitoring (blocks until complete)
-  python scripts/finetune/run_training.py
+  poetry run python scripts/finetune/run_training.py
         """
     )
     
@@ -325,8 +325,8 @@ Examples:
         if not verify_instance_ready(ec2_manager, ssm_manager, instance_id):
             logger.error("Instance is not ready. Exiting.")
             logger.info("\nDid you run these first?")
-            logger.info("  1. python scripts/setup/start_ec2.py")
-            logger.info("  2. python scripts/setup/deploy_via_ssm.py")
+            logger.info("  1. poetry run python scripts/setup/start_ec2.py")
+            logger.info("  2. poetry run python scripts/setup/deploy_via_ssm.py")
             sys.exit(1)
         
         # Run training

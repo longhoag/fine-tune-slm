@@ -37,7 +37,7 @@ Before testing, ensure you have:
 
 **How to run**:
 ```bash
-python scripts/finetune/run_training.py --dry-run
+poetry run python scripts/finetune/run_training.py --dry-run
 ```
 
 **Expected output**:
@@ -105,7 +105,7 @@ DRY RUN COMPLETE - No training performed
 
 **How to run**:
 ```bash
-python scripts/finetune/run_training.py --test
+poetry run python scripts/finetune/run_training.py --test
 ```
 
 **Expected output**:
@@ -161,10 +161,10 @@ Next steps:
 **How to run**:
 ```bash
 # Run in foreground (blocks until complete, ~3-4 hours)
-python scripts/finetune/run_training.py
+poetry run python scripts/finetune/run_training.py
 
 # OR run in background (returns immediately)
-python scripts/finetune/run_training.py --background
+poetry run python scripts/finetune/run_training.py --background
 ```
 
 **Background mode output**:
@@ -195,29 +195,29 @@ Here's the recommended step-by-step testing process:
 
 ```bash
 # 1. Start EC2 instance (~23 seconds)
-python scripts/setup/start_ec2.py
+poetry run python scripts/setup/start_ec2.py
 
 # 2. Deploy environment (~20 seconds if cached)
-python scripts/setup/deploy_via_ssm.py
+poetry run python scripts/setup/deploy_via_ssm.py
 
 # 3. DRY RUN - Validate configuration (~3 minutes, $0.03)
-python scripts/finetune/run_training.py --dry-run
+poetry run python scripts/finetune/run_training.py --dry-run
 
 # 4. TEST MODE - Verify training works (~7 minutes, $0.05)
-python scripts/finetune/run_training.py --test
+poetry run python scripts/finetune/run_training.py --test
 
 # 5. If test passed, run full training in background
-python scripts/finetune/run_training.py --background
+poetry run python scripts/finetune/run_training.py --background
 
 # 6. (Optional) Monitor training
 aws logs tail /aws/ssm/fine-tune-llama --follow
 
 # 7. After training completes (~3-4 hours later)
 #    - Copy to S3 and push to HuggingFace
-python scripts/finetune/push_to_hf.py
+poetry run python scripts/finetune/push_to_hf.py
 
 # 8. Stop instance to save costs
-python scripts/setup/stop_ec2.py
+poetry run python scripts/setup/stop_ec2.py
 ```
 
 ## Troubleshooting
@@ -247,7 +247,7 @@ aws ssm start-session --target i-0ad7db4eb23bd2df8
 df -h | grep /mnt/training
 
 # If not mounted, run deploy again
-python scripts/setup/deploy_via_ssm.py
+poetry run python scripts/setup/deploy_via_ssm.py
 ```
 
 ### Issue: Training hangs or takes too long
