@@ -64,11 +64,19 @@ aws s3 sync s3://$S3_BUCKET/$S3_PREFIX $LOCAL_DIR --no-progress
 
 echo "✓ Download completed"
 
-# Check if TensorBoard is installed
-if ! command -v tensorboard &> /dev/null; then
+# Check if Poetry is available
+if ! command -v poetry &> /dev/null; then
   echo ""
-  echo "⚠️  TensorBoard not found. Installing..."
-  pip install tensorboard
+  echo "❌ Poetry not found. Please install Poetry first:"
+  echo "   curl -sSL https://install.python-poetry.org | python3 -"
+  exit 1
+fi
+
+# Check if TensorBoard is in Poetry environment
+if ! poetry run tensorboard --version &> /dev/null; then
+  echo ""
+  echo "⚠️  TensorBoard not found in Poetry environment. Installing..."
+  poetry add tensorboard --group dev
 fi
 
 # Start TensorBoard
@@ -80,4 +88,6 @@ echo "  Press Ctrl+C to stop"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-tensorboard --logdir $LOCAL_DIR --host 0.0.0.0 --port 6006
+# Suppress TensorFlow warnings (TensorBoard works fine without TensorFlow for PyTorch logs)
+export TF_CPP_MIN_LOG_LEVEL=3
+poetry run tensorboard --logdir $LOCAL_DIR --host 0.0.0.0 --port 6006 2>&1 | grep -v "TensorFlow installation not found" | grep -v "pkg_resources"
