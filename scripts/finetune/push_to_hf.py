@@ -11,16 +11,16 @@ This script:
 
 Usage:
     # Push model from EC2 checkpoint directory
-    python scripts/finetune/push_to_hf.py
+    poetry run python scripts/finetune/push_to_hf.py
     
     # Push specific checkpoint
-    python scripts/finetune/push_to_hf.py --checkpoint checkpoint-1000
+    poetry run python scripts/finetune/push_to_hf.py --checkpoint checkpoint-1000
     
     # Push from S3 (if already copied)
-    python scripts/finetune/push_to_hf.py --from-s3
-    
+    poetry run python scripts/finetune/push_to_hf.py --from-s3
+
     # Dry run to verify configuration
-    python scripts/finetune/push_to_hf.py --dry-run
+    poetry run python scripts/finetune/push_to_hf.py --dry-run
 """
 
 import argparse
@@ -233,16 +233,16 @@ def main():
         epilog="""
 Examples:
   # Push latest checkpoint from EC2
-  python scripts/finetune/push_to_hf.py
+  poetry run python scripts/finetune/push_to_hf.py
   
   # Push specific checkpoint
-  python scripts/finetune/push_to_hf.py --checkpoint checkpoint-1000
+  poetry run python scripts/finetune/push_to_hf.py --checkpoint checkpoint-1000
   
   # Copy to S3 only (don't push to HF)
-  python scripts/finetune/push_to_hf.py --copy-to-s3-only
-  
+  poetry run python scripts/finetune/push_to_hf.py --copy-to-s3-only
+
   # Dry run to verify configuration
-  python scripts/finetune/push_to_hf.py --dry-run
+  poetry run python scripts/finetune/push_to_hf.py --dry-run
         """
     )
     

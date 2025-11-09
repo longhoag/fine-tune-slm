@@ -14,8 +14,8 @@ We have **3 testing modes** to verify the environment is ready before committing
 
 Before testing, ensure you have:
 
-1. ✅ EC2 instance running: `python scripts/setup/start_ec2.py`
-2. ✅ Environment deployed: `python scripts/setup/deploy_via_ssm.py`
+1. ✅ EC2 instance running: `poetry run python scripts/setup/start_ec2.py`
+2. ✅ Environment deployed: `poetry run python scripts/setup/deploy_via_ssm.py`
 3. ✅ Docker image pulled and GPU verified (from deploy script)
 4. ✅ EBS volume mounted at `/mnt/training`
 
