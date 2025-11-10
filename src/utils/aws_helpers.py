@@ -138,7 +138,9 @@ class SSMManager:
         commands: List[str],
         comment: Optional[str] = None,
         working_directory: str = "/home/ubuntu",
-        timeout_seconds: int = 3600
+        timeout_seconds: int = 3600,
+        cloudwatch_log_group: Optional[str] = None,
+        cloudwatch_output_enabled: bool = True
     ) -> str:
         """
         Send command to EC2 instance via SSM.
@@ -149,6 +151,8 @@ class SSMManager:
             comment: Optional comment for the command
             working_directory: Directory to run commands in
             timeout_seconds: Command timeout
+            cloudwatch_log_group: CloudWatch log group name (optional)
+            cloudwatch_output_enabled: Enable CloudWatch output (default: True)
             
         Returns:
             Command ID for tracking
@@ -157,17 +161,28 @@ class SSMManager:
             logger.info(f"Sending SSM command to {instance_id}")
             logger.debug(f"Commands: {commands}")
             
-            response = self.client.ssm.send_command(
-                InstanceIds=[instance_id],
-                DocumentName="AWS-RunShellScript",
-                Parameters={
+            # Build command parameters
+            command_params = {
+                'InstanceIds': [instance_id],
+                'DocumentName': "AWS-RunShellScript",
+                'Parameters': {
                     'commands': commands,
                     'workingDirectory': [working_directory],
                     'executionTimeout': [str(timeout_seconds)]
                 },
-                Comment=comment or "Fine-tune SLM automated command",
-                TimeoutSeconds=timeout_seconds
-            )
+                'Comment': comment or "Fine-tune SLM automated command",
+                'TimeoutSeconds': timeout_seconds
+            }
+            
+            # Add CloudWatch logging if enabled
+            if cloudwatch_output_enabled and cloudwatch_log_group:
+                command_params['CloudWatchOutputConfig'] = {
+                    'CloudWatchLogGroupName': cloudwatch_log_group,
+                    'CloudWatchOutputEnabled': True
+                }
+                logger.debug(f"CloudWatch logging enabled: {cloudwatch_log_group}")
+            
+            response = self.client.ssm.send_command(**command_params)
             
             command_id = response['Command']['CommandId']
             logger.info(f"Command sent successfully. Command ID: {command_id}")

@@ -130,6 +130,7 @@ def run_training(
     instance_id: str,
     ecr_registry: str,
     repository: str,
+    cloudwatch_log_group: str = None,
     dry_run: bool = False,
     test_mode: bool = False,
     background: bool = False,
@@ -144,6 +145,7 @@ def run_training(
         instance_id: EC2 instance ID
         ecr_registry: ECR registry URL
         repository: ECR repository name
+        cloudwatch_log_group: CloudWatch log group for SSM output
         dry_run: Only validate environment
         test_mode: Run minimal steps to test
         background: Don't wait for completion
@@ -189,10 +191,15 @@ def run_training(
         instance_id=instance_id,
         commands=[training_cmd],
         comment=f"Fine-tuning: {mode}",
-        timeout_seconds=cmd_timeout
+        timeout_seconds=cmd_timeout,
+        cloudwatch_log_group=cloudwatch_log_group
     )
     
     logger.success(f"Command sent! Command ID: {command_id}")
+    
+    if cloudwatch_log_group:
+        logger.info(f"📊 CloudWatch logs: {cloudwatch_log_group}")
+        logger.info(f"   View: aws logs tail {cloudwatch_log_group} --follow")
 
     
     if background:
@@ -312,10 +319,12 @@ Examples:
         region = configs.get_aws('aws.region')
         ecr_registry = configs.get_aws('aws.ecr.registry')
         repository = configs.get_aws('aws.ecr.repository')
+        cloudwatch_log_group = configs.get_aws('aws.cloudwatch.log_group')
         
         logger.info(f"Instance ID: {instance_id}")
         logger.info(f"Region: {region}")
         logger.info(f"ECR Image: {ecr_registry}/{repository}:latest")
+        logger.info(f"CloudWatch Logs: {cloudwatch_log_group}")
         
         # Initialize AWS clients
         aws_client = AWSClient(region=region)
@@ -336,6 +345,7 @@ Examples:
             instance_id=instance_id,
             ecr_registry=ecr_registry,
             repository=repository,
+            cloudwatch_log_group=cloudwatch_log_group,
             dry_run=args.dry_run,
             test_mode=args.test,
             background=args.background,
