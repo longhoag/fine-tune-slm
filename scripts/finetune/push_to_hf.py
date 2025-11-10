@@ -1,30 +1,36 @@
 #!/usr/bin/env python3
 """
-Push trained model to Hugging Face Hub.
+Push trained model from S3 to Hugging Face Hub.
 
 This script:
-1. Verifies trained model exists on EC2 or S3
-2. Merges LoRA weights with base model (optional)
-3. Authenticates with Hugging Face
-4. Pushes model to Hub
-5. Updates model card with training details
+1. Lists available trained models in S3 (timestamped versions)
+2. Downloads selected model from S3 to local temp directory
+3. Authenticates with Hugging Face using token from Secrets Manager
+4. Pushes model to HuggingFace Hub
+5. Cleans up temporary files
+
+Note: Models are automatically uploaded to S3 during training with timestamps.
+      This script runs locally - no EC2 instance required!
 
 Usage:
-    # Push model from EC2 checkpoint directory
+    # List available models in S3
+    poetry run python scripts/finetune/push_to_hf.py --list
+    
+    # Push latest model to HuggingFace (default)
     poetry run python scripts/finetune/push_to_hf.py
     
-    # Push specific checkpoint
-    poetry run python scripts/finetune/push_to_hf.py --checkpoint checkpoint-1000
+    # Push specific timestamped version
+    poetry run python scripts/finetune/push_to_hf.py --timestamp 20251110_174835
     
-    # Push from S3 (if already copied)
-    poetry run python scripts/finetune/push_to_hf.py --from-s3
-
     # Dry run to verify configuration
     poetry run python scripts/finetune/push_to_hf.py --dry-run
 """
 
 import argparse
+import shutil
 import sys
+import tempfile
+from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
@@ -33,213 +39,218 @@ sys.path.insert(0, str(project_root))
 
 from loguru import logger
 from src.utils.config import load_all_configs
-from src.utils.aws_helpers import AWSClient, EC2Manager, SSMManager, S3Manager, SecretsManager
+from src.utils.aws_helpers import AWSClient, S3Manager, SecretsManager
 
 
-def verify_ec2_checkpoint(
-    ssm_manager: SSMManager,
-    instance_id: str,
-    checkpoint_dir: str = "/mnt/training/checkpoints"
-) -> dict:
+def list_s3_models(s3_manager: S3Manager, bucket: str, prefix: str) -> list:
     """
-    Verify trained model exists on EC2 instance.
+    List available trained models in S3.
     
     Args:
-        ssm_manager: SSMManager instance
-        instance_id: EC2 instance ID
-        checkpoint_dir: Checkpoint directory path
+        s3_manager: S3Manager instance
+        bucket: S3 bucket name
+        prefix: S3 prefix (e.g., 'models/llama-3.1-8b-medical-ie')
         
     Returns:
-        dict with verification results
+        List of dicts with timestamp and path info
     """
-    logger.info(f"Verifying checkpoint directory on EC2: {checkpoint_dir}")
+    logger.info(f"Listing models in s3://{bucket}/{prefix}/")
     
-    check_cmd = f"""
-export AWS_DEFAULT_REGION=us-east-1
-if [ -d "{checkpoint_dir}" ]; then
-    echo "Directory exists"
-    echo "=== Contents ==="
-    ls -lh {checkpoint_dir}
-    echo "=== Checkpoint subdirectories ==="
-    ls -d {checkpoint_dir}/checkpoint-* 2>/dev/null || echo "No checkpoints found"
-    echo "=== Final model ==="
-    ls -lh {checkpoint_dir}/adapter_* 2>/dev/null || echo "No adapter files found"
-else
-    echo "Directory does not exist"
-    exit 1
-fi
-"""
-    
-    command_id = ssm_manager.send_command(
-        instance_id=instance_id,
-        commands=[check_cmd],
-        comment="Verify checkpoint directory"
-    )
-    
-    output = ssm_manager.wait_for_command(command_id, instance_id, timeout=60)
-    
-    if output['status'] == 'Success':
-        logger.success("Checkpoint directory verified!")
-        logger.info(f"\n{output['stdout']}")
-        return {"exists": True, "output": output['stdout']}
-    else:
-        logger.error("Checkpoint verification failed")
-        logger.error(f"\n{output['stderr']}")
-        return {"exists": False, "error": output['stderr']}
+    try:
+        # List all objects under prefix
+        response = s3_manager.s3_client.list_objects_v2(
+            Bucket=bucket,
+            Prefix=f"{prefix}/",
+            Delimiter='/'
+        )
+        
+        # Extract timestamp directories
+        models = []
+        if 'CommonPrefixes' in response:
+            for prefix_info in response['CommonPrefixes']:
+                full_prefix = prefix_info['Prefix']
+                # Extract timestamp from path: models/llama/.../20251110_174835/
+                parts = full_prefix.rstrip('/').split('/')
+                timestamp = parts[-1]
+                
+                # Verify it looks like a timestamp
+                if '_' in timestamp and len(timestamp) == 15:
+                    try:
+                        dt = datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
+                        models.append({
+                            'timestamp': timestamp,
+                            'datetime': dt,
+                            's3_prefix': full_prefix.rstrip('/'),
+                            'formatted_date': dt.strftime("%Y-%m-%d %H:%M:%S")
+                        })
+                    except ValueError:
+                        # Not a valid timestamp, skip
+                        pass
+        
+        # Sort by datetime (newest first)
+        models.sort(key=lambda x: x['datetime'], reverse=True)
+        
+        return models
+        
+    except Exception as e:
+        logger.error(f"Failed to list S3 models: {e}")
+        return []
 
 
-def push_from_ec2(
-    ssm_manager: SSMManager,
-    instance_id: str,
-    ecr_registry: str,
-    repository: str,
-    hf_repo: str,
-    checkpoint_path: str = "/mnt/training/checkpoints",
-    dry_run: bool = False
-) -> dict:
+def download_model_from_s3(
+    s3_manager: S3Manager,
+    bucket: str,
+    s3_prefix: str,
+    local_dir: Path
+) -> bool:
     """
-    Push model to HuggingFace Hub from EC2 instance.
+    Download model from S3 to local directory.
     
     Args:
-        ssm_manager: SSMManager instance
-        instance_id: EC2 instance ID
-        ecr_registry: ECR registry URL
-        repository: ECR repository name
-        hf_repo: HuggingFace repository name
-        checkpoint_path: Path to checkpoint directory
+        s3_manager: S3Manager instance
+        bucket: S3 bucket name
+        s3_prefix: S3 prefix to model directory
+        local_dir: Local directory to download to
+        
+    Returns:
+        True if successful
+    """
+    logger.info(f"Downloading from s3://{bucket}/{s3_prefix}/final_model")
+    logger.info(f"To local directory: {local_dir}")
+    
+    try:
+        # Download all files under the model prefix
+        s3_model_prefix = f"{s3_prefix}/final_model"
+        
+        # List all files
+        response = s3_manager.s3_client.list_objects_v2(
+            Bucket=bucket,
+            Prefix=s3_model_prefix
+        )
+        
+        if 'Contents' not in response:
+            logger.error("No files found in S3")
+            return False
+        
+        local_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Download each file
+        for obj in response['Contents']:
+            s3_key = obj['Key']
+            # Get relative path within the model directory
+            rel_path = s3_key.replace(s3_model_prefix + '/', '')
+            
+            if not rel_path or rel_path == s3_model_prefix:
+                continue
+                
+            local_file = local_dir / rel_path
+            local_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            logger.debug(f"Downloading: {rel_path}")
+            s3_manager.s3_client.download_file(bucket, s3_key, str(local_file))
+        
+        logger.success(f"✅ Downloaded {len(response['Contents'])} files")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to download model: {e}")
+        return False
+
+
+def push_to_huggingface(
+    model_dir: Path,
+    repo_name: str,
+    hf_token: str,
+    dry_run: bool = False
+) -> bool:
+    """
+    Push model to HuggingFace Hub.
+    
+    Args:
+        model_dir: Local directory containing the model
+        repo_name: HuggingFace repository (e.g., 'username/model-name')
+        hf_token: HuggingFace API token
         dry_run: If True, only verify without pushing
         
     Returns:
-        Command output dict
+        True if successful
     """
     logger.info(f"\n{'='*60}")
-    logger.info(f"Pushing Model to HuggingFace Hub: {hf_repo}")
+    logger.info(f"Pushing to HuggingFace Hub: {repo_name}")
     logger.info(f"{'='*60}\n")
     
-    # Build push command using Docker container
-    docker_cmd_parts = [
-        "docker run --rm --gpus all",
-        "-v /mnt/training:/mnt/training",
-        "-v /home/ubuntu/fine-tune-slm:/workspace",
-        "-w /workspace",
-        f"{ecr_registry}/{repository}:latest",
-        "python scripts/push_model_to_hub.py",  # Script inside container
-        f"--checkpoint-dir {checkpoint_path}",
-        f"--repo-name {hf_repo}",
-        "--use-ssm",  # Get HF token from Secrets Manager
-    ]
-    
     if dry_run:
-        docker_cmd_parts.append("--dry-run")
-    
-    push_cmd = " ".join(docker_cmd_parts)
-    
-    logger.info("Push command:")
-    logger.info(push_cmd)
-    logger.info("")
-    
-    if dry_run:
-        logger.info("DRY RUN - Would execute push command")
-        return {"status": "DryRun", "command": push_cmd}
-    
-    # Send command
-    logger.info("Sending push command via SSM...")
-    command_id = ssm_manager.send_command(
-        instance_id=instance_id,
-        commands=[f"export AWS_DEFAULT_REGION=us-east-1 && cd /home/ubuntu/fine-tune-slm && {push_cmd}"],
-        comment=f"Push model to HF Hub: {hf_repo}",
-        timeout=1800  # 30 minutes
-    )
-    
-    logger.success(f"Command sent! Command ID: {command_id}")
-    logger.info("Waiting for push to complete...")
-    
-    output = ssm_manager.wait_for_command(
-        command_id=command_id,
-        instance_id=instance_id,
-        timeout=1800,
-        poll_interval=10
-    )
-    
-    if output['status'] == 'Success':
-        logger.success("✅ Model pushed to HuggingFace Hub successfully!")
-        logger.info(f"\nOutput:\n{output['stdout']}")
-    else:
-        logger.error(f"❌ Push failed with status: {output['status']}")
-        logger.error(f"\nStdout:\n{output['stdout']}")
-        logger.error(f"\nStderr:\n{output['stderr']}")
-    
-    return output
-
-
-def copy_checkpoint_to_s3(
-    ssm_manager: SSMManager,
-    instance_id: str,
-    checkpoint_path: str,
-    s3_bucket: str,
-    s3_prefix: str
-) -> dict:
-    """
-    Copy checkpoint from EC2 to S3.
-    
-    Args:
-        ssm_manager: SSMManager instance
-        instance_id: EC2 instance ID
-        checkpoint_path: Source path on EC2
-        s3_bucket: Destination S3 bucket
-        s3_prefix: Destination S3 prefix
+        logger.warning("DRY RUN - Verifying model files only")
         
-    Returns:
-        Command output dict
-    """
-    logger.info(f"Copying checkpoint to S3: s3://{s3_bucket}/{s3_prefix}")
+        # Check required files exist
+        required_files = ['adapter_config.json', 'adapter_model.safetensors']
+        missing = []
+        for file in required_files:
+            if not (model_dir / file).exists():
+                missing.append(file)
+        
+        if missing:
+            logger.error(f"Missing required files: {missing}")
+            return False
+        
+        logger.success("✅ Model files verified")
+        logger.info(f"Would push to: https://huggingface.co/{repo_name}")
+        return True
     
-    copy_cmd = f"""
-export AWS_DEFAULT_REGION=us-east-1
-if [ -d "{checkpoint_path}" ]; then
-    echo "Copying to S3..."
-    aws s3 sync {checkpoint_path} s3://{s3_bucket}/{s3_prefix} --no-progress
-    echo "Copy completed"
-else
-    echo "Checkpoint directory not found: {checkpoint_path}"
-    exit 1
-fi
-"""
-    
-    command_id = ssm_manager.send_command(
-        instance_id=instance_id,
-        commands=[copy_cmd],
-        comment="Copy checkpoint to S3",
-        timeout=1800
-    )
-    
-    logger.info("Waiting for S3 copy to complete...")
-    output = ssm_manager.wait_for_command(command_id, instance_id, timeout=1800, poll_interval=10)
-    
-    if output['status'] == 'Success':
-        logger.success(f"✅ Checkpoint copied to s3://{s3_bucket}/{s3_prefix}")
-    else:
-        logger.error("❌ S3 copy failed")
-        logger.error(f"\n{output['stderr']}")
-    
-    return output
+    try:
+        from huggingface_hub import HfApi, login
+        
+        # Login to HuggingFace
+        logger.info("Logging in to HuggingFace Hub...")
+        login(token=hf_token, add_to_git_credential=False)
+        logger.success("✅ Logged in to HuggingFace Hub")
+        
+        # Initialize API
+        api = HfApi()
+        
+        # Check if repo exists, create if not
+        try:
+            api.repo_info(repo_id=repo_name, repo_type="model")
+            logger.info(f"Repository exists: {repo_name}")
+        except Exception:
+            logger.info(f"Creating repository: {repo_name}")
+            api.create_repo(repo_id=repo_name, repo_type="model", private=False)
+        
+        # Upload files
+        logger.info("Uploading model files...")
+        timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        api.upload_folder(
+            folder_path=str(model_dir),
+            repo_id=repo_name,
+            repo_type="model",
+            commit_message=f"Upload model from training run {timestamp_str}"
+        )
+        
+        logger.success(f"✅ Pushed to: https://huggingface.co/{repo_name}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to push to HuggingFace: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
 
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Push trained model to HuggingFace Hub",
+        description="Push trained model from S3 to HuggingFace Hub",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Push latest checkpoint from EC2
+  # List available models in S3
+  poetry run python scripts/finetune/push_to_hf.py --list
+  
+  # Push latest model to HuggingFace (default)
   poetry run python scripts/finetune/push_to_hf.py
   
-  # Push specific checkpoint
-  poetry run python scripts/finetune/push_to_hf.py --checkpoint checkpoint-1000
-  
-  # Copy to S3 only (don't push to HF)
-  poetry run python scripts/finetune/push_to_hf.py --copy-to-s3-only
+  # Push specific timestamped version
+  poetry run python scripts/finetune/push_to_hf.py --timestamp 20251110_174835
 
   # Dry run to verify configuration
   poetry run python scripts/finetune/push_to_hf.py --dry-run
@@ -253,14 +264,14 @@ Examples:
         help="Configuration directory (default: config/)"
     )
     parser.add_argument(
-        "--checkpoint",
-        type=str,
-        help="Specific checkpoint to push (e.g., 'checkpoint-1000')"
+        "--list",
+        action="store_true",
+        help="List available models in S3 and exit"
     )
     parser.add_argument(
-        "--copy-to-s3-only",
-        action="store_true",
-        help="Only copy to S3, don't push to HuggingFace"
+        "--timestamp",
+        type=str,
+        help="Specific timestamp to push (e.g., '20251110_174835')"
     )
     parser.add_argument(
         "--dry-run",
@@ -277,84 +288,126 @@ Examples:
     
     try:
         # Load configs
-        configs = load_all_configs(args.config_dir)
+        configs = load_all_configs(args.config_dir, use_ssm=True)
         
-        instance_id = configs.get_aws('aws.ec2.instance_id')
         region = configs.get_aws('aws.region')
-        ecr_registry = configs.get_aws('aws.ecr.registry')
-        repository = configs.get_aws('aws.ecr.repository')
-        s3_bucket = configs.get_aws('aws.s3.bucket')
-        s3_prefix = configs.get_aws('aws.s3.prefix')
+        s3_bucket = configs.get_training('output.s3_bucket')
+        s3_prefix = configs.get_training('output.s3_prefix')
         hf_repo = configs.get_training('output.hf_repo')
+        hf_token_secret = configs.get_aws('aws.secrets_manager.hf_token_secret')
         
-        logger.info(f"Instance ID: {instance_id}")
-        logger.info(f"Region: {region}")
+        logger.info(f"S3 Location: s3://{s3_bucket}/{s3_prefix}")
         logger.info(f"HuggingFace Repo: {hf_repo}")
-        logger.info(f"S3 Backup: s3://{s3_bucket}/{s3_prefix}")
         
         # Initialize AWS clients
         aws_client = AWSClient(region=region)
-        ec2_manager = EC2Manager(aws_client)
-        ssm_manager = SSMManager(aws_client)
+        s3_manager = S3Manager(aws_client)
+        secrets_mgr = SecretsManager(aws_client)
         
-        # Check instance is running
-        status_info = ec2_manager.get_instance_status(instance_id)
-        if status_info['state'] != "running":
-            logger.error(f"Instance is not running. Current state: {status_info['state']}")
-            logger.info("Start the instance first: poetry run python scripts/setup/start_ec2.py")
+        # List available models
+        logger.info("\n📦 Checking available models in S3...")
+        models = list_s3_models(s3_manager, s3_bucket, s3_prefix)
+        
+        if not models:
+            logger.error("No trained models found in S3")
+            logger.info(f"Expected: s3://{s3_bucket}/{s3_prefix}/YYYYMMDD_HHMMSS/")
+            logger.info("\nHave you run training yet?")
+            logger.info("  poetry run python scripts/finetune/run_training.py")
             sys.exit(1)
         
-        # Verify checkpoint exists
-        checkpoint_path = "/mnt/training/checkpoints"
-        if args.checkpoint:
-            checkpoint_path = f"/mnt/training/checkpoints/{args.checkpoint}"
+        logger.success(f"Found {len(models)} trained model(s):")
+        for i, model in enumerate(models, 1):
+            marker = "← LATEST" if i == 1 else ""
+            timestamp = model['timestamp']
+            formatted = model['formatted_date']
+            logger.info(f"  {i}. {timestamp} ({formatted}) {marker}")
         
-        result = verify_ec2_checkpoint(ssm_manager, instance_id, checkpoint_path)
-        if not result['exists']:
-            logger.error("No checkpoint found on EC2 instance")
-            sys.exit(1)
+        # If --list only, exit
+        if args.list:
+            logger.info("\nUse --timestamp to push a specific version")
+            sys.exit(0)
         
-        # Copy to S3
-        logger.info("\n📦 Copying checkpoint to S3 for archival...")
-        copy_result = copy_checkpoint_to_s3(
-            ssm_manager=ssm_manager,
-            instance_id=instance_id,
-            checkpoint_path=checkpoint_path,
-            s3_bucket=s3_bucket,
-            s3_prefix=s3_prefix
-        )
+        # Select model to push
+        if args.timestamp:
+            # Find specified timestamp
+            selected = None
+            for model in models:
+                if model['timestamp'] == args.timestamp:
+                    selected = model
+                    break
+            
+            if not selected:
+                logger.error(f"Timestamp not found: {args.timestamp}")
+                logger.info("Available timestamps:")
+                for model in models:
+                    logger.info(f"  - {model['timestamp']}")
+                sys.exit(1)
+            
+            timestamp = selected['timestamp']
+            formatted = selected['formatted_date']
+            logger.info(f"\n✅ Selected: {timestamp} ({formatted})")
+        else:
+            # Use latest
+            selected = models[0]
+            timestamp = selected['timestamp']
+            formatted = selected['formatted_date']
+            logger.info(f"\n✅ Using latest: {timestamp} ({formatted})")
         
-        if copy_result['status'] != 'Success':
-            logger.error("Failed to copy checkpoint to S3")
-            sys.exit(1)
+        # Create temporary directory for download
+        temp_dir = Path(tempfile.mkdtemp(prefix="hf_model_"))
+        logger.info(f"\n📥 Temporary directory: {temp_dir}")
         
-        # Push to HuggingFace (unless --copy-to-s3-only)
-        if not args.copy_to_s3_only:
+        try:
+            # Download model from S3
+            success = download_model_from_s3(
+                s3_manager=s3_manager,
+                bucket=s3_bucket,
+                s3_prefix=selected['s3_prefix'],
+                local_dir=temp_dir
+            )
+            
+            if not success:
+                logger.error("Failed to download model from S3")
+                sys.exit(1)
+            
+            # Get HuggingFace token
+            logger.info("\n🔑 Retrieving HuggingFace token...")
+            hf_token = secrets_mgr.get_secret(hf_token_secret)
+            logger.success("✅ Retrieved HuggingFace token")
+            
+            # Push to HuggingFace
             logger.info("\n🚀 Pushing to HuggingFace Hub...")
-            push_result = push_from_ec2(
-                ssm_manager=ssm_manager,
-                instance_id=instance_id,
-                ecr_registry=ecr_registry,
-                repository=repository,
-                hf_repo=hf_repo,
-                checkpoint_path=checkpoint_path,
+            success = push_to_huggingface(
+                model_dir=temp_dir,
+                repo_name=hf_repo,
+                hf_token=hf_token,
                 dry_run=args.dry_run
             )
             
-            if push_result['status'] not in ['Success', 'DryRun']:
-                logger.error("Failed to push model to HuggingFace Hub")
+            if not success:
+                logger.error("Failed to push to HuggingFace Hub")
                 sys.exit(1)
-        
-        logger.success("\n✅ All operations completed successfully!")
-        logger.info("\nNext steps:")
-        logger.info(f"  1. View model on HuggingFace: https://huggingface.co/{hf_repo}")
-        logger.info(f"  2. View S3 backup: s3://{s3_bucket}/{s3_prefix}")
-        logger.info("  3. Stop instance: python scripts/setup/stop_ec2.py")
+            
+            logger.success("\n✅ All operations completed successfully!")
+            if not args.dry_run:
+                logger.info(f"\n🎉 Live at: https://huggingface.co/{hf_repo}")
+                s3_path = f"{s3_bucket}/{selected['s3_prefix']}/final_model"
+                logger.info(f"📦 S3 backup: s3://{s3_path}")
+            
+        finally:
+            # Clean up temporary directory
+            if temp_dir.exists():
+                logger.info(f"\n🧹 Cleaning up...")
+                shutil.rmtree(temp_dir)
+                logger.success("✅ Cleanup complete")
         
         sys.exit(0)
         
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Cancelled by user")
+        sys.exit(1)
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"\n❌ Error: {e}")
         import traceback
         logger.error(traceback.format_exc())
         sys.exit(1)
