@@ -284,30 +284,41 @@ def setup_trainer(
     # Create output directory
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
+    # Build training arguments dict
+    training_args_dict = {
+        'output_dir': output_dir,
+        'per_device_train_batch_size': training_config['per_device_train_batch_size'],
+        'per_device_eval_batch_size': training_config['per_device_eval_batch_size'],
+        'gradient_accumulation_steps': training_config['gradient_accumulation_steps'],
+        'learning_rate': training_config['learning_rate'],
+        'warmup_steps': training_config['warmup_steps'],
+        'logging_steps': training_config['logging_steps'],
+        'save_steps': training_config['save_steps'],
+        'eval_steps': training_config['eval_steps'],
+        'save_total_limit': training_config['save_total_limit'],
+        'fp16': training_config['fp16'],
+        'optim': training_config['optim'],
+        'eval_strategy': training_config['evaluation_strategy'],
+        'load_best_model_at_end': training_config['load_best_model_at_end'],
+        'metric_for_best_model': training_config['metric_for_best_model'],
+        'report_to': ["tensorboard"],
+        'logging_dir': f"{output_dir}/logs",
+        'save_safetensors': True,
+        'remove_unused_columns': False,
+    }
+    
+    # Handle max_steps vs num_train_epochs
+    # When max_steps is set (test mode), use it; otherwise use num_train_epochs
+    max_steps = training_config.get('max_steps')
+    if max_steps and max_steps > 0:
+        training_args_dict['max_steps'] = max_steps
+        # Don't set num_train_epochs when using max_steps
+    else:
+        training_args_dict['num_train_epochs'] = training_config.get('num_train_epochs', 3)
+        training_args_dict['max_steps'] = -1  # -1 means use epochs
+    
     # Configure training arguments
-    training_args = TrainingArguments(
-        output_dir=output_dir,
-        num_train_epochs=training_config.get('num_train_epochs'),
-        max_steps=training_config.get('max_steps', -1),  # -1 means use epochs
-        per_device_train_batch_size=training_config['per_device_train_batch_size'],
-        per_device_eval_batch_size=training_config['per_device_eval_batch_size'],
-        gradient_accumulation_steps=training_config['gradient_accumulation_steps'],
-        learning_rate=training_config['learning_rate'],
-        warmup_steps=training_config['warmup_steps'],
-        logging_steps=training_config['logging_steps'],
-        save_steps=training_config['save_steps'],
-        eval_steps=training_config['eval_steps'],
-        save_total_limit=training_config['save_total_limit'],
-        fp16=training_config['fp16'],
-        optim=training_config['optim'],
-        eval_strategy=training_config['evaluation_strategy'],
-        load_best_model_at_end=training_config['load_best_model_at_end'],
-        metric_for_best_model=training_config['metric_for_best_model'],
-        report_to=["tensorboard"],  # Log to TensorBoard
-        logging_dir=f"{output_dir}/logs",
-        save_safetensors=True,
-        remove_unused_columns=False,
-    )
+    training_args = TrainingArguments(**training_args_dict)
     
     # Data collator for language modeling
     data_collator = DataCollatorForLanguageModeling(
@@ -477,7 +488,7 @@ def main():
         if args.max_steps:
             logger.info(f"⚠️  Overriding max_steps to {args.max_steps} (test mode)")
             training_config['max_steps'] = args.max_steps
-            training_config['num_train_epochs'] = None  # Disable epochs when using max_steps
+            # num_train_epochs will be ignored when max_steps > 0
         
         trainer = setup_trainer(
             model=model,
