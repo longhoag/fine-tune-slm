@@ -539,7 +539,43 @@ python scripts/finetune/evaluate_checkpoint.py \\
 
 Then view locally without EC2 running! 💰
 
-## 10. Quick Reference
+## 10. Expected Warnings (Non-Critical)
+
+During training, you may see these warnings - **they are normal and don't indicate errors**:
+
+### ✅ Gradient Checkpointing Warning
+```
+`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
+```
+- **What it means**: Gradient checkpointing saves memory by recomputing activations
+- **Action needed**: None - this is expected behavior for memory optimization
+
+### ✅ PyTorch Checkpoint Warning
+```
+torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly.
+```
+- **What it means**: PyTorch recommends explicitly setting `use_reentrant=False` 
+- **Action needed**: None - functionality works correctly with defaults
+- **Future**: May be addressed in future PyTorch versions
+
+### ✅ Base Model Config Warning (FIXED in latest version)
+```
+Unable to fetch remote file due to 401 Client Error...
+Could not find a config file in meta-llama/Meta-Llama-3.1-8B
+```
+- **What it means**: PEFT couldn't fetch base model config during save
+- **Fixed by**: HuggingFace Hub login in training script
+- **If you still see this**: Check your HF token in AWS Secrets Manager
+
+### 🚨 What SHOULD Worry You
+
+These are actual errors:
+- `CUDA out of memory` - Reduce batch size or max_seq_length
+- `Dataset not found` - Check dataset paths in config
+- `Training failed:` with exception - See CloudWatch logs for details
+- Training stops unexpectedly - Check instance health and disk space
+
+## 11. Quick Reference
 
 | What to Monitor | Where | How |
 |----------------|-------|-----|
