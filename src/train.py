@@ -456,9 +456,14 @@ def main():
         # 4. Prepare Datasets
         # ====================================================================
         logger.info("\n📚 Preparing datasets...")
+        
+        # Use dataset paths from config when --use-ssm, otherwise use CLI args
+        train_path = dataset_config['train_path'] if args.use_ssm else args.train_data
+        val_path = dataset_config['validation_path'] if args.use_ssm else args.val_data
+        
         train_dataset, val_dataset = prepare_dataset(
-            train_path=args.train_data,
-            validation_path=args.val_data,
+            train_path=train_path,
+            validation_path=val_path,
             tokenizer=tokenizer,
             max_seq_length=dataset_config['max_seq_length'],
         )
