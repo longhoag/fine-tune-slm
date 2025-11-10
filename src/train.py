@@ -322,6 +322,11 @@ def setup_trainer(
     if max_steps and max_steps > 0:
         training_args_dict['max_steps'] = max_steps
         # Don't set num_train_epochs when using max_steps
+        
+        # Disable checkpoint saving in test mode (max_steps < 50)
+        if max_steps < 50:
+            training_args_dict['save_strategy'] = 'no'
+            logger.info("⚠️  Test mode: checkpoint saving disabled")
     else:
         training_args_dict['num_train_epochs'] = training_config.get('num_train_epochs', 3)
         training_args_dict['max_steps'] = -1  # -1 means use epochs
