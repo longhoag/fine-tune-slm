@@ -447,6 +447,12 @@ def main():
             else:
                 logger.warning("⚠️  No HF token found. Set HUGGING_FACE_HUB_TOKEN for gated models.")
         
+        # Login to HuggingFace Hub (needed for PEFT to access base model configs)
+        if hf_token:
+            from huggingface_hub import login
+            login(token=hf_token, add_to_git_credential=False)
+            logger.info("✅ Logged in to HuggingFace Hub")
+        
         # ====================================================================
         # 3. Setup Model and Tokenizer
         # ====================================================================
@@ -552,8 +558,19 @@ def main():
         logger.info("\n✅ Training complete!")
         
         # ====================================================================
-        # 7. Save Final Model
+        # 7. Save Final Model (Skip in test mode)
         # ====================================================================
+        # Detect test mode: if max_steps is very small (< 50), skip saving
+        is_test_mode = args.max_steps and args.max_steps < 50
+        
+        if is_test_mode:
+            logger.warning("\n⚠️  Test mode detected (max_steps < 50)")
+            logger.warning("⚠️  Skipping final model save and S3 upload")
+            logger.info("\n" + "="*60)
+            logger.info("🎉 Test run completed successfully!")
+            logger.info("="*60)
+            return 0
+        
         logger.info("\n💾 Saving final model...")
         final_model_path = f"{output_dir}/final_model"
         trainer.save_model(final_model_path)
@@ -562,12 +579,18 @@ def main():
         logger.info(f"✅ Model saved to: {final_model_path}")
         
         # ====================================================================
-        # 8. Upload to S3 (if using SSM)
+        # 8. Upload to S3 (if using SSM) with timestamp
         # ====================================================================
         if args.use_ssm:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
             logger.info("\n☁️  Uploading model to S3...")
             s3_bucket = configs.get_training('output.s3_bucket')
-            s3_prefix = configs.get_training('output.s3_prefix')
+            s3_prefix_base = configs.get_training('output.s3_prefix')
+            
+            # Add timestamp to prevent overwriting previous runs
+            s3_prefix = f"{s3_prefix_base}/{timestamp}"
             
             s3_mgr = S3Manager(aws_client)
             s3_mgr.upload_directory(
