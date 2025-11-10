@@ -517,6 +517,8 @@ def main():
         from datetime import datetime
         
         checkpoint_dirs = glob.glob(f"{output_dir}/checkpoint-*")
+        final_model_path = f"{output_dir}/final_model"
+        final_model_exists = Path(final_model_path).exists()
         resume_from_checkpoint = None
         
         if checkpoint_dirs and not args.no_resume:
@@ -529,25 +531,42 @@ def main():
             logger.info(f"🔄 Resuming training from step {checkpoint_step}")
             resume_from_checkpoint = latest_checkpoint
             
-        elif checkpoint_dirs and args.no_resume:
-            # Backup existing checkpoints before starting fresh
+        elif (checkpoint_dirs or final_model_exists) and args.no_resume:
+            # Backup existing checkpoints/models before starting fresh
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_dir = f"{output_dir}/backup_{timestamp}"
             
-            logger.warning(f"⚠️  Found {len(checkpoint_dirs)} checkpoint(s) but --no-resume flag set")
-            logger.info(f"📦 Backing up existing checkpoints to: {backup_dir}")
+            if checkpoint_dirs:
+                logger.warning(f"⚠️  Found {len(checkpoint_dirs)} checkpoint(s) but --no-resume flag set")
+            if final_model_exists:
+                logger.warning("⚠️  Found existing final_model but --no-resume flag set")
             
+            logger.info(f"📦 Backing up to: {backup_dir}")
             Path(backup_dir).mkdir(parents=True, exist_ok=True)
+            
+            # Backup checkpoints
             for checkpoint_dir in checkpoint_dirs:
                 checkpoint_name = Path(checkpoint_dir).name
                 shutil.move(checkpoint_dir, f"{backup_dir}/{checkpoint_name}")
+                logger.info(f"📦 Backed up: {checkpoint_name}")
             
-            # Also backup final_model if it exists
-            final_model_path = f"{output_dir}/final_model"
-            if Path(final_model_path).exists():
+            # Backup final_model
+            if final_model_exists:
                 shutil.move(final_model_path, f"{backup_dir}/final_model")
-                logger.info(f"📦 Backed up final_model to: {backup_dir}/final_model")
+                logger.info(f"📦 Backed up: final_model")
             
+            logger.info("✅ Backup complete. Starting training from scratch...")
+            
+        elif final_model_exists and not args.no_resume:
+            # Found final_model but no checkpoints - likely from previous test run
+            # Back it up automatically to prevent overwriting
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir = f"{output_dir}/backup_{timestamp}"
+            
+            logger.warning("⚠️  Found existing final_model from previous run")
+            logger.info(f"📦 Auto-backing up to: {backup_dir}/final_model")
+            Path(backup_dir).mkdir(parents=True, exist_ok=True)
+            shutil.move(final_model_path, f"{backup_dir}/final_model")
             logger.info("✅ Backup complete. Starting training from scratch...")
             
         else:
