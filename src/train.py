@@ -219,9 +219,18 @@ def setup_model_and_tokenizer(
         dtype=torch.float16,
     )
     
-    # Prepare model for k-bit training
+    # Disable cache for training (required for gradient checkpointing)
+    model.config.use_cache = False
+    
+    # Prepare model for k-bit training with gradient checkpointing
     logger.info("Preparing model for k-bit training...")
-    model = prepare_model_for_kbit_training(model)
+    model = prepare_model_for_kbit_training(
+        model,
+        use_gradient_checkpointing=True
+    )
+    
+    # Enable gradient checkpointing with explicit use_reentrant setting
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     
     # Configure LoRA
     logger.info("Configuring LoRA adapters...")
