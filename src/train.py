@@ -380,6 +380,11 @@ def main():
         default=None,
         help="Override max training steps (useful for testing)",
     )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Start training from scratch, ignoring existing checkpoints",
+    )
     
     args = parser.parse_args()
     
@@ -484,7 +489,49 @@ def main():
         logger.info("\n🏋️  Starting training...")
         logger.info("="*60)
         
-        trainer.train()
+        # Check for existing checkpoints to resume from
+        import glob
+        import shutil
+        from datetime import datetime
+        
+        checkpoint_dirs = glob.glob(f"{output_dir}/checkpoint-*")
+        resume_from_checkpoint = None
+        
+        if checkpoint_dirs and not args.no_resume:
+            # Sort by checkpoint number and get the latest
+            checkpoint_dirs.sort(key=lambda x: int(x.split('-')[-1]))
+            latest_checkpoint = checkpoint_dirs[-1]
+            checkpoint_step = latest_checkpoint.split('-')[-1]
+            
+            logger.info(f"📂 Found existing checkpoint: {latest_checkpoint}")
+            logger.info(f"🔄 Resuming training from step {checkpoint_step}")
+            resume_from_checkpoint = latest_checkpoint
+            
+        elif checkpoint_dirs and args.no_resume:
+            # Backup existing checkpoints before starting fresh
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir = f"{output_dir}/backup_{timestamp}"
+            
+            logger.warning(f"⚠️  Found {len(checkpoint_dirs)} checkpoint(s) but --no-resume flag set")
+            logger.info(f"📦 Backing up existing checkpoints to: {backup_dir}")
+            
+            Path(backup_dir).mkdir(parents=True, exist_ok=True)
+            for checkpoint_dir in checkpoint_dirs:
+                checkpoint_name = Path(checkpoint_dir).name
+                shutil.move(checkpoint_dir, f"{backup_dir}/{checkpoint_name}")
+            
+            # Also backup final_model if it exists
+            final_model_path = f"{output_dir}/final_model"
+            if Path(final_model_path).exists():
+                shutil.move(final_model_path, f"{backup_dir}/final_model")
+                logger.info(f"📦 Backed up final_model to: {backup_dir}/final_model")
+            
+            logger.info("✅ Backup complete. Starting training from scratch...")
+            
+        else:
+            logger.info("Starting training from scratch (no checkpoints found)")
+        
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         
         logger.info("\n✅ Training complete!")
         

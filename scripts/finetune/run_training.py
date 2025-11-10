@@ -7,19 +7,27 @@ This script:
 2. Sends training command via SSM
 3. Monitors training progress via CloudWatch logs (optional)
 4. Waits for training completion or runs in background
+5. Automatically resumes from latest checkpoint if available
 
 Usage:
     # Dry run - test environment without training
     poetry run python scripts/finetune/run_training.py --dry-run
     
-    # Test mode - run 1 step to verify everything works
+    # Test mode - run 5 steps to verify everything works
     poetry run python scripts/finetune/run_training.py --test
     
-    # Full training in background
+    # Full training in background (auto-resumes if interrupted)
     poetry run python scripts/finetune/run_training.py --background
 
     # Full training with monitoring (blocks until complete)
     poetry run python scripts/finetune/run_training.py
+    
+    # Start fresh, ignoring existing checkpoints
+    poetry run python scripts/finetune/run_training.py --no-resume
+
+Note:
+    Training automatically resumes from the latest checkpoint if found.
+    This protects against interruptions and allows incremental training.
 """
 
 import argparse
@@ -75,6 +83,7 @@ def build_training_command(
     dry_run: bool = False,
     test_mode: bool = False,
     max_steps: int = None,
+    no_resume: bool = False,
     output_dir: str = "/mnt/training/checkpoints"
 ) -> str:
     """
@@ -84,8 +93,9 @@ def build_training_command(
         ecr_registry: ECR registry URL
         repository: ECR repository name
         dry_run: If True, only validate environment
-        test_mode: If True, run minimal training (1 step)
+        test_mode: If True, run minimal training (5 steps)
         max_steps: Override max training steps
+        no_resume: If True, ignore existing checkpoints
         output_dir: Checkpoint output directory
         
     Returns:
@@ -109,6 +119,10 @@ def build_training_command(
     
     if dry_run:
         python_cmd_parts.append("--dry-run")
+    
+    # No resume flag
+    if no_resume:
+        python_cmd_parts.append("--no-resume")
     
     # Test mode: limited steps
     if test_mode and not dry_run:
@@ -134,6 +148,7 @@ def run_training(
     dry_run: bool = False,
     test_mode: bool = False,
     background: bool = False,
+    no_resume: bool = False,
     max_steps: int = None,
     timeout: int = 14400  # 4 hours default
 ) -> dict:
@@ -149,6 +164,7 @@ def run_training(
         dry_run: Only validate environment
         test_mode: Run minimal steps to test
         background: Don't wait for completion
+        no_resume: Start from scratch, ignore checkpoints
         max_steps: Override max training steps
         timeout: Maximum time to wait (seconds)
         
@@ -172,6 +188,7 @@ def run_training(
         repository=repository,
         dry_run=dry_run,
         test_mode=test_mode,
+        no_resume=no_resume,
         max_steps=max_steps
     )
     
@@ -263,11 +280,17 @@ Examples:
   # Run 5 training steps to verify everything works
   poetry run python scripts/finetune/run_training.py --test
   
-  # Full training in background
+  # Full training in background (auto-resumes from checkpoints)
   poetry run python scripts/finetune/run_training.py --background
 
   # Full training with live monitoring (blocks until complete)
   poetry run python scripts/finetune/run_training.py
+  
+  # Start fresh training, ignoring existing checkpoints
+  poetry run python scripts/finetune/run_training.py --no-resume
+
+Note: Training automatically resumes from the latest checkpoint if found.
+Use --no-resume to start from scratch.
         """
     )
     
@@ -296,6 +319,11 @@ Examples:
         "--max-steps",
         type=int,
         help="Override max training steps (for custom testing)"
+    )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Start training from scratch, ignoring existing checkpoints"
     )
     parser.add_argument(
         "--timeout",
@@ -349,6 +377,7 @@ Examples:
             dry_run=args.dry_run,
             test_mode=args.test,
             background=args.background,
+            no_resume=args.no_resume,
             max_steps=args.max_steps,
             timeout=args.timeout
         )
