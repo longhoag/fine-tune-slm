@@ -326,6 +326,7 @@ def setup_trainer(
         # Disable checkpoint saving in test mode (max_steps < 50)
         if max_steps < 50:
             training_args_dict['save_strategy'] = 'no'
+            training_args_dict['load_best_model_at_end'] = False
             logger.info("⚠️  Test mode: checkpoint saving disabled")
     else:
         training_args_dict['num_train_epochs'] = training_config.get('num_train_epochs', 3)
