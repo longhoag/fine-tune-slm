@@ -543,29 +543,30 @@ Then view locally without EC2 running! 💰
 
 During training, you may see these warnings - **they are normal and don't indicate errors**:
 
-### ✅ Gradient Checkpointing Warning
+### ✅ Gradient Checkpointing Warning (FIXED in latest version)
 ```
 `use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`.
 ```
-- **What it means**: Gradient checkpointing saves memory by recomputing activations
-- **Action needed**: None - this is expected behavior for memory optimization
+- **Status**: Fixed in latest version by explicitly setting `use_cache=False`
+- **What it was**: Gradient checkpointing saves memory by recomputing activations
+- **Action needed**: None - update to latest Docker image to eliminate warning
 
-### ✅ PyTorch Checkpoint Warning
+### ✅ PyTorch Checkpoint Warning (FIXED in latest version)
 ```
 torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly.
 ```
-- **What it means**: PyTorch recommends explicitly setting `use_reentrant=False` 
-- **Action needed**: None - functionality works correctly with defaults
-- **Future**: May be addressed in future PyTorch versions
+- **Status**: Fixed in latest version by setting `use_reentrant=False`
+- **What it was**: PyTorch recommends explicitly setting this parameter
+- **Action needed**: None - update to latest Docker image to eliminate warning
 
 ### ✅ Base Model Config Warning (FIXED in latest version)
 ```
 Unable to fetch remote file due to 401 Client Error...
 Could not find a config file in meta-llama/Meta-Llama-3.1-8B
 ```
-- **What it means**: PEFT couldn't fetch base model config during save
-- **Fixed by**: HuggingFace Hub login in training script
-- **If you still see this**: Check your HF token in AWS Secrets Manager
+- **Status**: Fixed in latest version by HuggingFace Hub login
+- **What it was**: PEFT couldn't fetch base model config during save
+- **Action needed**: None - update to latest Docker image to eliminate warning
 
 ### 🚨 What SHOULD Worry You
 
