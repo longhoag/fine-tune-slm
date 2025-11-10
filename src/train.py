@@ -216,7 +216,7 @@ def setup_model_and_tokenizer(
         device_map="auto",
         token=hf_token,
         trust_remote_code=True,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
     )
     
     # Prepare model for k-bit training
