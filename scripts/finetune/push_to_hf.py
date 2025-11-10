@@ -279,13 +279,13 @@ Examples:
         # Load configs
         configs = load_all_configs(args.config_dir)
         
-        instance_id = configs.get_aws('ec2.instance_id')
+        instance_id = configs.get_aws('aws.ec2.instance_id')
         region = configs.get_aws('aws.region')
-        ecr_registry = configs.get_aws('ecr.registry')
-        repository = configs.get_aws('ecr.repository')
-        s3_bucket = configs.get_aws('s3.bucket')
-        s3_prefix = configs.get_aws('s3.prefix')
-        hf_repo = configs.get_training('huggingface.repo_name')
+        ecr_registry = configs.get_aws('aws.ecr.registry')
+        repository = configs.get_aws('aws.ecr.repository')
+        s3_bucket = configs.get_aws('aws.s3.bucket')
+        s3_prefix = configs.get_aws('aws.s3.prefix')
+        hf_repo = configs.get_training('output.hf_repo')
         
         logger.info(f"Instance ID: {instance_id}")
         logger.info(f"Region: {region}")
@@ -298,10 +298,10 @@ Examples:
         ssm_manager = SSMManager(aws_client)
         
         # Check instance is running
-        status = ec2_manager.get_instance_status(instance_id)
-        if status != "running":
-            logger.error(f"Instance is not running. Current state: {status}")
-            logger.info("Start the instance first: python scripts/setup/start_ec2.py")
+        status_info = ec2_manager.get_instance_status(instance_id)
+        if status_info['state'] != "running":
+            logger.error(f"Instance is not running. Current state: {status_info['state']}")
+            logger.info("Start the instance first: poetry run python scripts/setup/start_ec2.py")
             sys.exit(1)
         
         # Verify checkpoint exists

@@ -251,6 +251,34 @@ class SSMManager:
                     time.sleep(poll_interval)
                 else:
                     raise
+    
+    def is_instance_online(self, instance_id: str, timeout: int = 30) -> bool:
+        """
+        Check if EC2 instance is online and reachable via SSM.
+        
+        Args:
+            instance_id: EC2 instance ID
+            timeout: Maximum time to wait in seconds (default: 30)
+            
+        Returns:
+            True if SSM agent is online, False otherwise
+        """
+        try:
+            response = self.client.ssm.describe_instance_information(
+                Filters=[{'Key': 'InstanceIds', 'Values': [instance_id]}]
+            )
+            
+            if response.get('InstanceInformationList'):
+                ping_status = response['InstanceInformationList'][0]['PingStatus']
+                logger.debug(f"SSM PingStatus for {instance_id}: {ping_status}")
+                return ping_status == 'Online'
+            
+            logger.debug(f"No SSM information found for instance {instance_id}")
+            return False
+            
+        except ClientError as e:
+            logger.error(f"Failed to check SSM status for {instance_id}: {e}")
+            return False
 
 
 class S3Manager:

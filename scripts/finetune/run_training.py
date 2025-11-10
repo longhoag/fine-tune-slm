@@ -51,10 +51,10 @@ def verify_instance_ready(ec2_manager: EC2Manager, ssm_manager: SSMManager, inst
     logger.info("Verifying instance state...")
     
     # Check instance is running
-    status = ec2_manager.get_instance_status(instance_id)
-    if status != "running":
-        logger.error(f"Instance is not running. Current state: {status}")
-        logger.info("Start the instance first: python scripts/setup/start_ec2.py")
+    status_info = ec2_manager.get_instance_status(instance_id)
+    if status_info['state'] != "running":
+        logger.error(f"Instance is not running. Current state: {status_info['state']}")
+        logger.info("Start the instance first: poetry run python scripts/setup/start_ec2.py")
         return False
     
     logger.info("Instance is running ✓")
@@ -92,17 +92,17 @@ def build_training_command(
         Complete bash command string
     """
     # Base Docker run command with GPU access
+    # Override entrypoint since Dockerfile has ENTRYPOINT ["python3"]
     docker_cmd_parts = [
         "docker run --rm --gpus all",
+        "--entrypoint python3",
         "-v /mnt/training:/mnt/training",
-        "-v /home/ubuntu/fine-tune-slm:/workspace",
-        "-w /workspace",
         f"{ecr_registry}/{repository}:latest",
     ]
     
-    # Python training command
+    # Python training command (without 'python' since entrypoint is python3)
     python_cmd_parts = [
-        "python -m src.train",
+        "-m src.train",
         "--use-ssm",  # Use SSM Parameter Store for config
         f"--output-dir {output_dir}",
     ]
@@ -187,12 +187,13 @@ def run_training(
     logger.info("Sending training command via SSM...")
     command_id = ssm_manager.send_command(
         instance_id=instance_id,
-        commands=[f"export AWS_DEFAULT_REGION=us-east-1 && cd /home/ubuntu/fine-tune-slm && {training_cmd}"],
+        commands=[training_cmd],
         comment=f"Fine-tuning: {mode}",
-        timeout=cmd_timeout
+        timeout_seconds=cmd_timeout
     )
     
     logger.success(f"Command sent! Command ID: {command_id}")
+
     
     if background:
         logger.info("\n🎯 Running in background mode")
@@ -307,10 +308,10 @@ Examples:
         # Load configs
         configs = load_all_configs(args.config_dir)
         
-        instance_id = configs.get_aws('ec2.instance_id')
+        instance_id = configs.get_aws('aws.ec2.instance_id')
         region = configs.get_aws('aws.region')
-        ecr_registry = configs.get_aws('ecr.registry')
-        repository = configs.get_aws('ecr.repository')
+        ecr_registry = configs.get_aws('aws.ecr.registry')
+        repository = configs.get_aws('aws.ecr.repository')
         
         logger.info(f"Instance ID: {instance_id}")
         logger.info(f"Region: {region}")
