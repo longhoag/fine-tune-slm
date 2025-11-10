@@ -19,6 +19,10 @@ Before testing, ensure you have:
 3. ✅ Docker image pulled and GPU verified (from deploy script)
 4. ✅ EBS volume mounted at `/mnt/training`
 
+
+To stop instance: `poetry run python scripts/setup/stop_ec2.py`
+
+
 ## Testing Modes
 
 ### 1. Dry Run Mode (Recommended First Step)
@@ -139,9 +143,9 @@ Saving checkpoint to /mnt/training/checkpoints/checkpoint-5
 Training completed successfully!
 
 Next steps:
-  1. Check model artifacts: ls /mnt/training/checkpoints
-  2. Push to HuggingFace: python scripts/finetune/push_to_hf.py
-  3. Stop instance: python scripts/setup/stop_ec2.py
+  1. Check model artifacts (on EC2 instance): ls /mnt/training/checkpoints
+  2. Push to HuggingFace (if locally): poetry run python scripts/finetune/push_to_hf.py
+  3. Stop instance (if locally): poetry run python scripts/setup/stop_ec2.py
 ```
 
 **Duration**: ~5-7 minutes
