@@ -627,13 +627,25 @@ def main():
             s3_prefix = f"{s3_prefix_base}/{timestamp}"
             
             s3_mgr = S3Manager(aws_client)
+            
+            # Upload final model
             s3_mgr.upload_directory(
                 local_path=final_model_path,
                 bucket=s3_bucket,
                 prefix=f"{s3_prefix}/final_model",
             )
-            
             logger.info(f"✅ Model uploaded to s3://{s3_bucket}/{s3_prefix}/final_model")
+            
+            # Upload TensorBoard logs
+            logs_dir = Path(output_dir) / "logs"
+            if logs_dir.exists():
+                logger.info("\n📊 Uploading TensorBoard logs to S3...")
+                s3_mgr.upload_directory(
+                    local_path=str(logs_dir),
+                    bucket=s3_bucket,
+                    prefix=f"{s3_prefix}/logs",
+                )
+                logger.info(f"✅ Logs uploaded to s3://{s3_bucket}/{s3_prefix}/logs")
         
         logger.info("\n" + "="*60)
         logger.info("🎉 Fine-tuning completed successfully!")

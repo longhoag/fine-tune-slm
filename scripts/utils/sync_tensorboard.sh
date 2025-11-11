@@ -1,8 +1,12 @@
 #!/bin/bash
-# Sync TensorBoard logs from EC2 to S3 and download locally for visualization
+# Download TensorBoard logs from S3 and visualize locally
 # 
 # Usage:
+#   # View latest training logs
 #   ./scripts/utils/sync_tensorboard.sh
+#
+#   # View specific training run by timestamp
+#   ./scripts/utils/sync_tensorboard.sh 20251111_022951
 #
 # Then open http://localhost:6006 in your browser
 
@@ -10,59 +14,74 @@ set -e
 
 # Configuration (loaded from SSM Parameter Store)
 echo "Loading configuration from SSM Parameter Store..."
-INSTANCE_ID=$(aws ssm get-parameter --name /fine-tune-slm/ec2/instance-id --query 'Parameter.Value' --output text)
 S3_BUCKET=$(aws ssm get-parameter --name /fine-tune-slm/s3/bucket --query 'Parameter.Value' --output text)
-S3_PREFIX="tensorboard-logs"
+S3_PREFIX_BASE=$(aws ssm get-parameter --name /fine-tune-slm/s3/prefix --query 'Parameter.Value' --output text)
 LOCAL_DIR="./tensorboard-logs"
 
 echo "Configuration:"
-echo "  Instance ID: $INSTANCE_ID"
 echo "  S3 Bucket: $S3_BUCKET"
-echo "  S3 Prefix: $S3_PREFIX"
+echo "  S3 Prefix: $S3_PREFIX_BASE"
 echo "  Local Directory: $LOCAL_DIR"
 echo ""
 
-# Check if instance is running
-echo "Checking instance state..."
-INSTANCE_STATE=$(aws ec2 describe-instances \
-  --instance-ids $INSTANCE_ID \
-  --query 'Reservations[0].Instances[0].State.Name' \
-  --output text)
+# Get timestamp argument or find latest
+TIMESTAMP="$1"
 
-if [ "$INSTANCE_STATE" != "running" ]; then
-  echo "⚠️  Warning: Instance is $INSTANCE_STATE, not running"
-  echo "Only downloading existing logs from S3..."
+if [ -z "$TIMESTAMP" ]; then
+  echo "🔍 Finding latest training run..."
+  
+  # List all timestamp directories and get the latest
+  TIMESTAMP=$(aws s3 ls s3://$S3_BUCKET/$S3_PREFIX_BASE/ \
+    | grep "PRE" \
+    | awk '{print $2}' \
+    | sed 's/\///' \
+    | grep -E "^[0-9]{8}_[0-9]{6}$" \
+    | sort -r \
+    | head -1)
+  
+  if [ -z "$TIMESTAMP" ]; then
+    echo "❌ No training runs found in S3"
+    echo "Expected format: s3://$S3_BUCKET/$S3_PREFIX_BASE/YYYYMMDD_HHMMSS/logs"
+    echo ""
+    echo "Have you run training yet?"
+    echo "  poetry run python scripts/finetune/run_training.py"
+    exit 1
+  fi
+  
+  echo "✅ Found latest: $TIMESTAMP"
 else
-  echo "✓ Instance is running"
-  
-  # Sync from EC2 to S3
+  echo "📌 Using specified timestamp: $TIMESTAMP"
+fi
+
+S3_LOGS_PATH="s3://$S3_BUCKET/$S3_PREFIX_BASE/$TIMESTAMP/logs"
+
+echo ""
+echo "� Downloading logs from S3..."
+echo "  Source: $S3_LOGS_PATH"
+echo "  Target: $LOCAL_DIR"
+
+# Check if logs exist in S3
+if ! aws s3 ls $S3_LOGS_PATH/ > /dev/null 2>&1; then
   echo ""
-  echo "📤 Syncing TensorBoard logs from EC2 to S3..."
-  COMMAND_ID=$(aws ssm send-command \
-    --instance-id $INSTANCE_ID \
-    --document-name "AWS-RunShellScript" \
-    --parameters "commands=[\"aws s3 sync /mnt/training/checkpoints/logs s3://$S3_BUCKET/$S3_PREFIX --no-progress\"]" \
-    --query 'Command.CommandId' \
-    --output text)
-  
-  echo "SSM Command ID: $COMMAND_ID"
-  echo "Waiting for sync to complete..."
-  
-  # Wait for command to complete
-  aws ssm wait command-executed \
-    --command-id $COMMAND_ID \
-    --instance-id $INSTANCE_ID
-  
-  echo "✓ Sync to S3 completed"
+  echo "❌ No logs found at: $S3_LOGS_PATH"
+  echo ""
+  echo "Available training runs:"
+  aws s3 ls s3://$S3_BUCKET/$S3_PREFIX_BASE/ | grep "PRE" | awk '{print "  -", $2}' | sed 's/\/$//'
+  echo ""
+  echo "Note: TensorBoard logs are automatically uploaded after training completes."
+  exit 1
 fi
 
 # Download from S3 to local
-echo ""
-echo "📥 Downloading logs from S3 to local..."
 mkdir -p $LOCAL_DIR
-aws s3 sync s3://$S3_BUCKET/$S3_PREFIX $LOCAL_DIR --no-progress
+aws s3 sync $S3_LOGS_PATH $LOCAL_DIR --delete --no-progress
 
-echo "✓ Download completed"
+echo "✅ Download completed"
+echo ""
+
+# Count events
+EVENT_COUNT=$(find $LOCAL_DIR -name "events.out.tfevents.*" | wc -l | tr -d ' ')
+echo "📊 Found $EVENT_COUNT TensorBoard event file(s)"
 
 # Check if Poetry is available
 if ! command -v poetry &> /dev/null; then
