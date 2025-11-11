@@ -58,7 +58,7 @@ def list_s3_models(s3_manager: S3Manager, bucket: str, prefix: str) -> list:
     
     try:
         # List all objects under prefix
-        response = s3_manager.s3_client.list_objects_v2(
+        response = s3_manager.client.s3.list_objects_v2(
             Bucket=bucket,
             Prefix=f"{prefix}/",
             Delimiter='/'
@@ -123,7 +123,7 @@ def download_model_from_s3(
         s3_model_prefix = f"{s3_prefix}/final_model"
         
         # List all files
-        response = s3_manager.s3_client.list_objects_v2(
+        response = s3_manager.client.s3.list_objects_v2(
             Bucket=bucket,
             Prefix=s3_model_prefix
         )
@@ -147,7 +147,7 @@ def download_model_from_s3(
             local_file.parent.mkdir(parents=True, exist_ok=True)
             
             logger.debug(f"Downloading: {rel_path}")
-            s3_manager.s3_client.download_file(bucket, s3_key, str(local_file))
+            s3_manager.client.s3.download_file(bucket, s3_key, str(local_file))
         
         logger.success(f"✅ Downloaded {len(response['Contents'])} files")
         return True
