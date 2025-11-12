@@ -193,7 +193,7 @@ To view CloudWatch logs:
 
 **Cost**: ~$2.25 (3 hours × $0.7512/hour)
 
-## Complete Testing Workflow
+## Testing Workflow
 
 Here's the recommended step-by-step testing process:
 
@@ -210,18 +210,82 @@ poetry run python scripts/finetune/run_training.py --dry-run
 # 4. TEST MODE - Verify training works (~7 minutes, $0.05)
 poetry run python scripts/finetune/run_training.py --test
 
-# 5. If test passed, run full training in background
-poetry run python scripts/finetune/run_training.py --background
-
-# 6. (Optional) Monitor training
+# 5. (Optional) Monitor training
 aws logs tail /aws/ssm/fine-tune-llama --follow
 
-# 7. After training completes (~3-4 hours later)
-#    - Copy to S3 and push to HuggingFace
+# 6. Stop instance to save costs
+poetry run python scripts/setup/stop_ec2.py
+```
+
+## Complete Full-Training  Workflow
+
+Here's the recommended step-by-step full training process:
+
+### 1. Setting up
+
+```bash
+# Start EC2 instance (~23 seconds)
+poetry run python scripts/setup/start_ec2.py
+
+# Deploy environment (~20 seconds if cached)
+poetry run python scripts/setup/deploy_via_ssm.py
+```
+
+### 2. Run Full Training
+
+```bash
+# If test passed, run full training in background
+poetry run python scripts/finetune/run_training.py --background
+
+# (Optional) Monitor training -->  we can also view this on CloudWatch
+aws logs tail /aws/ssm/fine-tune-llama --follow
+
+# Stop instance to save costs after training is done
+poetry run python scripts/setup/stop_ec2.py
+```
+
+### 3. Push Model to HF 
+
+We don't need EC2 to be running, because at the end of training, the final model and training logs get pushed to S3. We can retrieve files from S3 without the need of EC2 running. 
+
+```bash
+# After training completes
+#    - List all uploaded models on S3
+poetry run python scripts/finetune/push_to_hf.py --list
+
+#    - Push the latest model (20251111_022951)
 poetry run python scripts/finetune/push_to_hf.py
 
-# 8. Stop instance to save costs
-poetry run python scripts/setup/stop_ec2.py
+#    - Or specify the timestamp explicitly
+poetry run python scripts/finetune/push_to_hf.py --timestamp 20251111_022951
+```
+
+### 4. View Training Logs as Graphs
+
+Option 1: View metrics with plots (recommended)
+
+```bash
+poetry run python scripts/utils/view_training_metrics.py
+
+# View specific training run
+poetry run python scripts/utils/view_training_metrics.py --timestamp 20251111_022951
+
+# Save plots to file
+poetry run python scripts/utils/view_training_metrics.py --save-plots training_metrics.png
+
+# Export metrics to CSV for analysis
+poetry run python scripts/utils/view_training_metrics.py --export-csv metrics.csv
+```
+
+Option 2: Traditional TensorBoard (more interactive)
+
+```bash
+./scripts/utils/sync_tensorboard.sh
+# Opens http://localhost:6006
+
+# View specific run in TensorBoard
+./scripts/utils/sync_tensorboard.sh 20251111_022951
+
 ```
 
 ## Troubleshooting
@@ -277,9 +341,9 @@ aws logs tail /aws/ssm/fine-tune-llama --follow --since 10m
 After successful testing:
 
 1. ✅ Test scripts passed → Run full training
-2. ✅ Training completed → Push to HuggingFace
-3. ✅ Model published → Stop EC2 instance
-4. ✅ Instance stopped → Celebrate! 🎉
+2. ✅ Training completed → Stop EC2 instance
+3. ✅ Push to HuggingFace → Model published
+4. ✅ Model published → Celebrate! 🎉
 
 **Total cost for one complete fine-tuning run**:
 - Testing: $0.08
