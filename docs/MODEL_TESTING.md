@@ -6,44 +6,54 @@ Quick reference for testing your fine-tuned medical IE model.
 
 Before testing, you need:
 
-1. **Start EC2 instance:**
+1. **Rebuild Docker image** (if `src/test_model.py` was recently added/updated):
+   ```bash
+   # Trigger GitHub Actions workflow to rebuild and push to ECR
+   git push origin main
+   # Or build locally and push manually (see .github/workflows/build-and-push-ecr.yml)
+   ```
+
+2. **Start EC2 instance:**
    ```bash
    poetry run python scripts/setup/start_ec2.py
    ```
 
-2. **Deploy environment:**
+3. **Deploy environment** (pulls latest Docker image):
    ```bash
    poetry run python scripts/setup/deploy_via_ssm.py
    ```
 
-3. **Run test:**
+4. **Run test:**
    ```bash
-   poetry run python scripts/finetune/test_model_ec2.py
+   poetry run python scripts/finetune/run_test_model_ec2.py
    ```
 
-4. **Stop EC2 when done:**
+5. **Stop EC2 when done:**
    ```bash
    poetry run python scripts/setup/stop_ec2.py
    ```
+
+**Note**: Steps 1 and 3 are only needed when testing code changes. For routine testing of different models, just start EC2 and run tests.
 
 ## Quick Start
 
 ```bash
 # Full workflow
 poetry run python scripts/setup/start_ec2.py
-poetry run python scripts/finetune/test_model_ec2.py
+poetry run python scripts/finetune/run_test_model_ec2.py
 poetry run python scripts/setup/stop_ec2.py
 ```
 
 ## Overview
 
-The `test_model_ec2.py` script:
-- ✅ Runs on EC2 GPU (fast inference)
+The `run_test_model_ec2.py` script:
+- ✅ Sends simple Docker command via SSM
+- ✅ Runs `src.test_model` inside Docker container
 - ✅ Downloads models from S3 (test any timestamped version)
-- ✅ Loads base Llama 3.1 8B + your LoRA adapters
-- ✅ Tests with medical text
+- ✅ Loads base Llama 3.1 8B + your LoRA adapters on GPU
+- ✅ Tests with medical text (sample or custom)
 - ✅ Shows structured entity extraction
-- ✅ Simple SSM command execution
+- ✅ Clean, maintainable code (no embedded scripts)
 
 **EC2 must be running before use** - Start with `scripts/setup/start_ec2.py`
 
@@ -54,7 +64,7 @@ The `test_model_ec2.py` script:
 ### 1. Test Latest Model
 
 ```bash
-poetry run python scripts/finetune/test_model_ec2.py
+poetry run python scripts/finetune/run_test_model_ec2.py
 ```
 
 Uses built-in sample medical text (melanoma case).
@@ -63,16 +73,16 @@ Uses built-in sample medical text (melanoma case).
 
 ```bash
 # List available models
-poetry run python scripts/finetune/test_model_ec2.py --list
+poetry run python scripts/finetune/run_test_model_ec2.py --list
 
 # Test specific timestamp
-poetry run python scripts/finetune/test_model_ec2.py --timestamp 20251111_022951
+poetry run python scripts/finetune/run_test_model_ec2.py --timestamp 20251111_022951
 ```
 
 ### 3. Test with Custom Input
 
 ```bash
-poetry run python scripts/finetune/test_model_ec2.py --input "62-year-old woman with stage IIIA NSCLC. EGFR exon 19 deletion detected. Started on osimertinib with good response..."
+poetry run python scripts/finetune/run_test_model_ec2.py --input "62-year-old woman with stage IIIA NSCLC. EGFR exon 19 deletion detected. Started on osimertinib with good response..."
 ```
 
 ### 4. Test Different Sample Cases
@@ -81,13 +91,13 @@ The script includes 3 built-in medical cases:
 
 ```bash
 # Sample 0: Melanoma with brain metastases (default)
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 0
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 0
 
 # Sample 1: NSCLC with EGFR mutation
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 1
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 1
 
 # Sample 2: Colorectal cancer with liver mets
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 2
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 2
 ```
 
 ### 5. Multiple Tests (Keep EC2 Running)
@@ -97,9 +107,9 @@ poetry run python scripts/finetune/test_model_ec2.py --sample-index 2
 poetry run python scripts/setup/start_ec2.py
 
 # Run multiple tests
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 0
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 1
-poetry run python scripts/finetune/test_model_ec2.py --timestamp 20251110_123456
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 0
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 1
+poetry run python scripts/finetune/run_test_model_ec2.py --timestamp 20251110_123456
 
 # Stop EC2 when done
 poetry run python scripts/setup/stop_ec2.py
@@ -253,7 +263,7 @@ poetry run python scripts/finetune/run_training.py
 poetry run python scripts/setup/start_ec2.py
 
 # 3. Test the model
-poetry run python scripts/finetune/test_model_ec2.py
+poetry run python scripts/finetune/run_test_model_ec2.py
 # → Verify extraction quality
 
 # 4. Stop EC2
@@ -270,13 +280,13 @@ poetry run python scripts/finetune/push_to_hf.py
 poetry run python scripts/setup/start_ec2.py
 
 # List all trained models
-poetry run python scripts/finetune/test_model_ec2.py --list
+poetry run python scripts/finetune/run_test_model_ec2.py --list
 
 # Test older version
-poetry run python scripts/finetune/test_model_ec2.py --timestamp 20251110_120000
+poetry run python scripts/finetune/run_test_model_ec2.py --timestamp 20251110_120000
 
 # Test newer version
-poetry run python scripts/finetune/test_model_ec2.py --timestamp 20251111_022951
+poetry run python scripts/finetune/run_test_model_ec2.py --timestamp 20251111_022951
 
 # Compare outputs, stop EC2
 poetry run python scripts/setup/stop_ec2.py
@@ -295,9 +305,9 @@ poetry run python scripts/setup/stop_ec2.py
 poetry run python scripts/setup/start_ec2.py
 
 # Run all tests
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 0
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 1
-poetry run python scripts/finetune/test_model_ec2.py --sample-index 2
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 0
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 1
+poetry run python scripts/finetune/run_test_model_ec2.py --sample-index 2
 
 # Stop immediately when done
 poetry run python scripts/setup/stop_ec2.py
