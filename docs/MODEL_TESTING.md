@@ -35,15 +35,6 @@ Before testing, you need:
 
 **Note**: Steps 1 and 3 are only needed when testing code changes. For routine testing of different models, just start EC2 and run tests.
 
-## Quick Start
-
-```bash
-# Full workflow
-poetry run python scripts/setup/start_ec2.py
-poetry run python scripts/finetune/run_test_model_ec2.py
-poetry run python scripts/setup/stop_ec2.py
-```
-
 ## Overview
 
 The `run_test_model_ec2.py` script:

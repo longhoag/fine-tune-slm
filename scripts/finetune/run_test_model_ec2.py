@@ -161,32 +161,44 @@ def main():
             logger.info(f"\n📝 Using sample text #{args.sample_index + 1}")
         
         # Get ECR image URI
-        ecr_image = configs.get_aws('aws.ecr.image_uri')
+        ecr_registry = configs.get_aws('aws.ecr.registry')
+        ecr_repository = configs.get_aws('aws.ecr.repository')
+        ecr_image = f"{ecr_registry}/{ecr_repository}:latest"
         
         # Build Docker command
         logger.info("\n🐳 Preparing Docker command...")
+        logger.info(f"ECR Image: {ecr_image}")
         
-        docker_cmd = (
-            f"docker run --rm --gpus all "
-            f"-v /mnt/training:/mnt/training "
-            f"-v /home/ubuntu/fine-tune-slm:/workspace "
-            f"-w /workspace "
-            f"{ecr_image} "
-            f"python -m src.test_model "
-            f"--use-ssm "
-            f"--timestamp {selected['timestamp']} "
+        # Build Docker command (following run_training.py pattern)
+        # Override entrypoint since Dockerfile has ENTRYPOINT ["python3"]
+        # Note: Code is already in Docker image at /workspace (set by Dockerfile WORKDIR)
+        docker_cmd_parts = [
+            "docker run --rm --gpus all",
+            "--entrypoint python3",
+            "-v /mnt/training:/mnt/training",  # Mount training volume for model download
+            ecr_image,
+        ]
+        
+        # Python module command (without 'python' since entrypoint is python3)
+        python_cmd_parts = [
+            "-m src.test_model",
+            "--use-ssm",
+            f"--timestamp {selected['timestamp']}",
             f"--sample-index {args.sample_index}"
-        )
+        ]
         
         # Add custom input if provided
         if test_input:
             # Escape input for shell
             escaped_input = test_input.replace('"', '\\"').replace('$', '\\$')
-            docker_cmd += f' --input "{escaped_input}"'
+            python_cmd_parts.append(f'--input "{escaped_input}"')
+        
+        # Combine Docker and Python commands
+        docker_cmd = " ".join(docker_cmd_parts) + " " + " ".join(python_cmd_parts)
         
         logger.success("✅ Docker command ready")
         
-        # Send SSM command
+        # Send SSM command (no bash -c wrapper needed - following run_training.py pattern)
         logger.info("\n📤 Sending command to EC2...")
         
         commands = [docker_cmd]
@@ -197,7 +209,8 @@ def main():
         command_id = ssm_manager.send_command(
             instance_id=instance_id,
             commands=commands,
-            comment=f"Test model {selected['timestamp']}"
+            comment=f"Test model {selected['timestamp']}",
+            working_directory="/home/ubuntu"  # Don't use /workspace to avoid path conflicts
         )
         
         logger.info(f"SSM Command ID: {command_id}")
@@ -213,13 +226,13 @@ def main():
             logger.info("\n" + "="*60)
             logger.info("EC2 TEST OUTPUT:")
             logger.info("="*60)
-            print(result['output'])
+            print(result.get('output', '(no output)'))
             logger.info("="*60)
             logger.success("\n✅ Test completed successfully!")
         else:
             logger.error(f"\n❌ Test failed with status: {result['status']}")
             logger.info("\nOutput:")
-            print(result['output'])
+            print(result.get('output', '(no output)'))
             if result.get('error'):
                 logger.info("\nError:")
                 print(result['error'])

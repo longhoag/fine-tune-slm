@@ -236,7 +236,7 @@ def main():
             
             s3_bucket = configs.get_training('output.s3_bucket')
             s3_prefix = configs.get_training('output.s3_prefix')
-            base_model_id = configs.get_training('model.base_model_id')
+            base_model_id = configs.get_training('model.name')  # Changed from model.base_model_id
         else:
             # Fallback to hardcoded values (for testing)
             logger.warning("⚠️  Not using SSM, using default values")
