@@ -285,7 +285,6 @@ Option 2: Traditional TensorBoard (more interactive)
 
 # View specific run in TensorBoard
 ./scripts/utils/sync_tensorboard.sh 20251111_022951
-
 ```
 
 ## Troubleshooting
