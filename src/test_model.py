@@ -232,7 +232,7 @@ def main():
         # Load configuration
         if args.use_ssm:
             from src.utils.config import load_all_configs
-            from src.utils.aws_helpers import SecretsManager
+            from src.utils.aws_helpers import AWSClient, SecretsManager
             
             configs = load_all_configs('config', use_ssm=True)
             
@@ -243,8 +243,10 @@ def main():
             # Get HuggingFace token from Secrets Manager (for gated models like Llama)
             hf_token = None
             try:
+                region = configs.get_aws('aws.region')
+                aws_client = AWSClient(region=region)
                 hf_token_secret = configs.get_aws('aws.secrets_manager.hf_token_secret')
-                secrets_mgr = SecretsManager()
+                secrets_mgr = SecretsManager(aws_client)
                 hf_token = secrets_mgr.get_secret(hf_token_secret)
                 logger.info(f"✅ Retrieved HF token from Secrets Manager: {hf_token_secret}")
             except Exception as e:
