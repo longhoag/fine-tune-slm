@@ -310,7 +310,7 @@ def main():
         logger.info("="*80)
         logger.info("📝 INPUT:")
         logger.info("="*80)
-        print(test_text)
+        logger.info(test_text)
         logger.info("")
         
         # Run inference
@@ -320,24 +320,25 @@ def main():
         
         output = run_inference(model, tokenizer, test_text)
         
+        # Display output
         logger.info("")
         logger.info("="*80)
         logger.info("📤 OUTPUT:")
         logger.info("="*80)
-        print(output)
+        logger.info(output)
         logger.info("")
         
-        # Parse output
+        # Parse and display output
         logger.info("="*80)
         logger.info("📊 PARSED OUTPUT:")
         logger.info("="*80)
         
         parsed = parse_output(output)
         if parsed:
-            print(json.dumps(parsed, indent=2))
+            logger.info(json.dumps(parsed, indent=2))
         else:
             logger.warning("⚠️  Could not parse JSON from output")
-            print(output)
+            logger.info(output)
         
         logger.info("")
         logger.info("="*80)

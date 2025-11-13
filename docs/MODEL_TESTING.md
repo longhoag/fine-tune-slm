@@ -2,6 +2,21 @@
 
 Quick reference for testing your fine-tuned medical IE model.
 
+## Overview
+
+The `run_test_model_ec2.py` script:
+- ✅ Sends simple Docker command via SSM
+- ✅ Runs `src.test_model` inside Docker container
+- ✅ Downloads models from S3 (test any timestamped version)
+- ✅ Loads base Llama 3.1 8B + your LoRA adapters on GPU
+- ✅ Tests with medical text (sample or custom)
+- ✅ Shows structured entity extraction
+- ✅ Clean, maintainable code (no embedded scripts)
+
+**EC2 must be running before use** - Start with `scripts/setup/start_ec2.py`
+
+**Remember to stop EC2 after testing** - Stop with `scripts/setup/stop_ec2.py`
+
 ## Prerequisites
 
 Before testing, you need:
@@ -35,20 +50,14 @@ Before testing, you need:
 
 **Note**: Steps 1 and 3 are only needed when testing code changes. For routine testing of different models, just start EC2 and run tests.
 
-## Overview
 
-The `run_test_model_ec2.py` script:
-- ✅ Sends simple Docker command via SSM
-- ✅ Runs `src.test_model` inside Docker container
-- ✅ Downloads models from S3 (test any timestamped version)
-- ✅ Loads base Llama 3.1 8B + your LoRA adapters on GPU
-- ✅ Tests with medical text (sample or custom)
-- ✅ Shows structured entity extraction
-- ✅ Clean, maintainable code (no embedded scripts)
+## To Check Detailed Error
 
-**EC2 must be running before use** - Start with `scripts/setup/start_ec2.py`
+Use this example command (need to change the command id associated with each run)
 
-**Remember to stop EC2 after testing** - Stop with `scripts/setup/stop_ec2.py`
+```bash
+aws ssm get-command-invocation --command-id 71700361-a4ab-4ba5-9e36-e3a97cd83438 --instance-id i-0ad7db4eb23bd2df8 --region us-east-1 --query '[StandardOutputContent, StandardErrorContent]' --output text
+```
 
 ## Usage Examples
 

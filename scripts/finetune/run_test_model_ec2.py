@@ -227,24 +227,14 @@ def main():
         logger.info("="*60)
         
         stdout = result.get('stdout', '').strip()
-        stderr = result.get('stderr', '').strip()
         
-        # Show combined output (stderr contains the log context)
-        if stderr:
-            logger.info("\n� EXECUTION LOG:")
-            logger.info("-" * 60)
-            print(stderr)
-            logger.info("-" * 60)
-        
-        # Show print output separately for clarity
         if stdout:
-            logger.info("\n📤 MODEL OUTPUT (print statements):")
-            logger.info("-" * 60)
-            print(stdout)
-            logger.info("-" * 60)
-        
-        if not stdout and not stderr:
+            # Just print the clean output from the model
+            print("\n" + stdout + "\n")
+        else:
             logger.warning("\n⚠️  No output captured")
+            logger.info("\n� Check SSM command logs:")
+            logger.info(f"    aws ssm get-command-invocation --command-id {command_id} --instance-id {instance_id} --region us-east-1")
         
         # Final status
         if result['status'] == 'Success':
@@ -252,6 +242,8 @@ def main():
         else:
             logger.error(f"\n❌ Test failed with status: {result['status']}")
             logger.info(f"Exit code: {result.get('exit_code', 'unknown')}")
+            logger.info("\n💡 View error details:")
+            logger.info(f"    aws ssm get-command-invocation --command-id {command_id} --instance-id {instance_id} --region us-east-1 --query StandardErrorContent --output text")
         
         logger.info("\n💡 To stop the EC2 instance:")
         logger.info("    poetry run python scripts/setup/stop_ec2.py")
