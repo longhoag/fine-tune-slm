@@ -56,7 +56,7 @@ fi
 S3_LOGS_PATH="s3://$S3_BUCKET/$S3_PREFIX_BASE/$TIMESTAMP/logs"
 
 echo ""
-echo "� Downloading logs from S3..."
+echo "--> Downloading logs from S3..."
 echo "  Source: $S3_LOGS_PATH"
 echo "  Target: $LOCAL_DIR"
 
