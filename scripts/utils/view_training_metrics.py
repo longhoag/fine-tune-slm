@@ -162,7 +162,7 @@ def parse_tensorboard_logs(log_dir: Path) -> Dict[str, List]:
 
 
 def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
-    """Plot training metrics."""
+    """Plot training metrics with combined loss plot."""
     try:
         import matplotlib.pyplot as plt
         import numpy as np
@@ -174,21 +174,122 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
         logger.warning("No metrics to plot")
         return
     
-    # Determine grid layout
-    metric_names = list(metrics.keys())
-    n_metrics = len(metric_names)
-    n_cols = min(2, n_metrics)
-    n_rows = (n_metrics + n_cols - 1) // n_cols
+    # Separate loss metrics from other metrics
+    train_loss = None
+    eval_loss = None
+    other_metrics = {}
+    
+    for name, data in metrics.items():
+        if 'train/loss' in name or name == 'loss':
+            train_loss = (name, data)
+        elif 'eval/loss' in name or 'eval_loss' in name:
+            eval_loss = (name, data)
+        else:
+            other_metrics[name] = data
+    
+    # Determine number of plots needed
+    n_plots = len(other_metrics)
+    if train_loss or eval_loss:
+        n_plots += 1  # Combined loss plot
+    
+    if n_plots == 0:
+        logger.warning("No metrics to plot")
+        return
+    
+    # Create figure with subplots
+    n_cols = min(2, n_plots)
+    n_rows = (n_plots + n_cols - 1) // n_cols
     
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 4 * n_rows))
-    if n_metrics == 1:
+    if n_plots == 1:
         axes = [axes]
     else:
         axes = axes.flatten()
     
-    # Plot each metric
-    for idx, (name, data) in enumerate(metrics.items()):
-        ax = axes[idx]
+    plot_idx = 0
+    
+    # Plot combined training and eval loss
+    if train_loss or eval_loss:
+        ax = axes[plot_idx]
+        plot_idx += 1
+        
+        # Plot training loss
+        if train_loss:
+            name, data = train_loss
+            steps = data['steps']
+            values = data['values']
+            
+            ax.plot(steps, values, linewidth=2, color='#E63946', label='Training Loss', alpha=0.8)
+            
+            # Annotate minimum training loss
+            min_val = min(values)
+            min_idx = values.index(min_val)
+            ax.plot(steps[min_idx], min_val, 'o', color='#E63946', markersize=8)
+            ax.annotate(f'Train Min: {min_val:.4f}', 
+                       xy=(steps[min_idx], min_val),
+                       xytext=(10, 15), textcoords='offset points',
+                       fontsize=9, color='#E63946',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='#E63946', alpha=0.7))
+            
+            # Annotate final training loss
+            final_val = values[-1]
+            ax.annotate(f'Train Final: {final_val:.4f}',
+                       xy=(steps[-1], final_val),
+                       xytext=(-10, -20), textcoords='offset points',
+                       fontsize=9, color='#E63946', ha='right',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='#E63946', alpha=0.7))
+        
+        # Plot eval loss
+        if eval_loss:
+            name, data = eval_loss
+            steps = data['steps']
+            values = data['values']
+            
+            ax.plot(steps, values, linewidth=2.5, color='#457B9D', label='Validation Loss', 
+                   marker='o', markersize=4, alpha=0.9)
+            
+            # Annotate minimum eval loss
+            min_val = min(values)
+            min_idx = values.index(min_val)
+            ax.plot(steps[min_idx], min_val, 'o', color='#457B9D', markersize=10)
+            ax.annotate(f'Val Min: {min_val:.4f}', 
+                       xy=(steps[min_idx], min_val),
+                       xytext=(10, -25), textcoords='offset points',
+                       fontsize=9, color='#457B9D',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='#457B9D', alpha=0.7))
+            
+            # Annotate final eval loss
+            final_val = values[-1]
+            ax.annotate(f'Val Final: {final_val:.4f}',
+                       xy=(steps[-1], final_val),
+                       xytext=(-10, 10), textcoords='offset points',
+                       fontsize=9, color='#457B9D', ha='right',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='#457B9D', alpha=0.7))
+        
+        ax.set_xlabel('Training Steps', fontsize=11, fontweight='bold')
+        ax.set_ylabel('Loss', fontsize=11, fontweight='bold')
+        ax.set_title('Training and Validation Loss', fontsize=13, fontweight='bold', pad=15)
+        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.legend(loc='upper right', framealpha=0.9, fontsize=10)
+        
+        # Add improvement percentage if both losses exist
+        if train_loss and eval_loss:
+            train_improvement = ((train_loss[1]['values'][0] - train_loss[1]['values'][-1]) / 
+                               train_loss[1]['values'][0]) * 100
+            eval_improvement = ((eval_loss[1]['values'][0] - eval_loss[1]['values'][-1]) / 
+                              eval_loss[1]['values'][0]) * 100
+            
+            ax.text(0.02, 0.98, 
+                   f'Train Improvement: {train_improvement:.1f}%\nVal Improvement: {eval_improvement:.1f}%',
+                   transform=ax.transAxes, fontsize=9,
+                   verticalalignment='top',
+                   bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.7))
+    
+    # Plot other metrics
+    for name, data in other_metrics.items():
+        ax = axes[plot_idx]
+        plot_idx += 1
+        
         steps = data['steps']
         values = data['values']
         
@@ -201,26 +302,15 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
         # Add min/max annotations
         if values:
             min_val = min(values)
-            max_val = max(values)
             final_val = values[-1]
             
-            if 'loss' in name.lower():
-                # For loss, highlight minimum
-                min_idx = values.index(min_val)
-                ax.plot(steps[min_idx], min_val, 'ro', markersize=8)
-                ax.annotate(f'Min: {min_val:.4f}', 
-                           xy=(steps[min_idx], min_val),
-                           xytext=(10, 10), textcoords='offset points',
-                           fontsize=9, color='red')
-            
-            # Show final value
             ax.annotate(f'Final: {final_val:.4f}',
                        xy=(steps[-1], final_val),
                        xytext=(-10, -10), textcoords='offset points',
                        fontsize=9, ha='right')
     
     # Hide unused subplots
-    for idx in range(n_metrics, len(axes)):
+    for idx in range(plot_idx, len(axes)):
         axes[idx].axis('off')
     
     plt.tight_layout()

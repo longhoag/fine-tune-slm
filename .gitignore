@@ -33,6 +33,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+tensorboard-logs/
 
 # Training outputs
 outputs/
