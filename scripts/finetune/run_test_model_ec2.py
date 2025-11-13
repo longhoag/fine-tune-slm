@@ -221,21 +221,37 @@ def main():
         # Wait and stream output
         result = ssm_manager.wait_for_command(command_id, instance_id)
         
-        # Display output
+        # Display combined output (stderr has logs, stdout has print statements)
+        logger.info("\n" + "="*60)
+        logger.info(f"TEST COMPLETED - Status: {result['status']}")
+        logger.info("="*60)
+        
+        stdout = result.get('stdout', '').strip()
+        stderr = result.get('stderr', '').strip()
+        
+        # Show combined output (stderr contains the log context)
+        if stderr:
+            logger.info("\n� EXECUTION LOG:")
+            logger.info("-" * 60)
+            print(stderr)
+            logger.info("-" * 60)
+        
+        # Show print output separately for clarity
+        if stdout:
+            logger.info("\n📤 MODEL OUTPUT (print statements):")
+            logger.info("-" * 60)
+            print(stdout)
+            logger.info("-" * 60)
+        
+        if not stdout and not stderr:
+            logger.warning("\n⚠️  No output captured")
+        
+        # Final status
         if result['status'] == 'Success':
-            logger.info("\n" + "="*60)
-            logger.info("EC2 TEST OUTPUT:")
-            logger.info("="*60)
-            print(result.get('output', '(no output)'))
-            logger.info("="*60)
             logger.success("\n✅ Test completed successfully!")
         else:
             logger.error(f"\n❌ Test failed with status: {result['status']}")
-            logger.info("\nOutput:")
-            print(result.get('output', '(no output)'))
-            if result.get('error'):
-                logger.info("\nError:")
-                print(result['error'])
+            logger.info(f"Exit code: {result.get('exit_code', 'unknown')}")
         
         logger.info("\n💡 To stop the EC2 instance:")
         logger.info("    poetry run python scripts/setup/stop_ec2.py")
