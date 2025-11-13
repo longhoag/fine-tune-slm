@@ -310,6 +310,7 @@ def setup_trainer(
         'eval_strategy': training_config['evaluation_strategy'],
         'load_best_model_at_end': training_config['load_best_model_at_end'],
         'metric_for_best_model': training_config['metric_for_best_model'],
+        'greater_is_better': training_config.get('greater_is_better', False),
         'report_to': ["tensorboard"],
         'logging_dir': f"{output_dir}/logs",
         'save_safetensors': True,

@@ -25,7 +25,7 @@ lora:
 
 training:
   output_dir: /mnt/training/checkpoints  # EBS volume path
-  num_train_epochs: 3
+  num_train_epochs: 5  # Increased from 3 - you're not overfitting yet
   per_device_train_batch_size: 4
   per_device_eval_batch_size: 4
   gradient_accumulation_steps: 4
@@ -33,7 +33,7 @@ training:
   warmup_steps: 100
   logging_steps: 10
   save_steps: 200
-  eval_steps: 200
+  eval_steps: 100  # More frequent eval for better TensorBoard graphs
   save_total_limit: 3
   fp16: true
   optim: paged_adamw_8bit
@@ -42,6 +42,7 @@ training:
   evaluation_strategy: steps
   load_best_model_at_end: true
   metric_for_best_model: eval_loss
+  greater_is_better: false  # Lower eval_loss is better
   
 quantization:
   load_in_4bit: true
