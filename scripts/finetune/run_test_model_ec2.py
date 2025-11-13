@@ -221,19 +221,20 @@ def main():
         # Wait and stream output
         result = ssm_manager.wait_for_command(command_id, instance_id)
         
-        # Display combined output (stderr has logs, stdout has print statements)
+        # Display output
         logger.info("\n" + "="*60)
         logger.info(f"TEST COMPLETED - Status: {result['status']}")
         logger.info("="*60)
         
-        stdout = result.get('stdout', '').strip()
+        # All output is in stderr since we use logger.info() in test_model.py
+        stderr = result.get('stderr', '').strip()
         
-        if stdout:
-            # Just print the clean output from the model
-            print("\n" + stdout + "\n")
+        if stderr:
+            # Display the model test output
+            print("\n" + stderr + "\n")
         else:
             logger.warning("\n⚠️  No output captured")
-            logger.info("\n� Check SSM command logs:")
+            logger.info("\n💡 Check SSM command logs:")
             logger.info(f"    aws ssm get-command-invocation --command-id {command_id} --instance-id {instance_id} --region us-east-1")
         
         # Final status
