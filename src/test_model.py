@@ -232,11 +232,37 @@ def main():
         # Load configuration
         if args.use_ssm:
             from src.utils.config import load_all_configs
+            from src.utils.aws_helpers import SecretsManager
+            
             configs = load_all_configs('config', use_ssm=True)
             
             s3_bucket = configs.get_training('output.s3_bucket')
             s3_prefix = configs.get_training('output.s3_prefix')
             base_model_id = configs.get_training('model.name')  # Changed from model.base_model_id
+            
+            # Get HuggingFace token from Secrets Manager (for gated models like Llama)
+            hf_token = None
+            try:
+                hf_token_secret = configs.get_aws('aws.secrets_manager.hf_token_secret')
+                secrets_mgr = SecretsManager()
+                hf_token = secrets_mgr.get_secret(hf_token_secret)
+                logger.info(f"✅ Retrieved HF token from Secrets Manager: {hf_token_secret}")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not retrieve HF token from Secrets Manager: {e}")
+                # Try environment variable as fallback
+                import os
+                hf_token = os.getenv('HUGGING_FACE_HUB_TOKEN')
+                if hf_token:
+                    logger.info("✅ Using HF token from HUGGING_FACE_HUB_TOKEN environment variable")
+                else:
+                    logger.warning("⚠️  No HF token found. Gated models may fail to load.")
+            
+            # Login to HuggingFace
+            if hf_token:
+                from huggingface_hub import login
+                login(token=hf_token, add_to_git_credential=False)
+                logger.info("✅ Logged in to HuggingFace Hub")
+                
         else:
             # Fallback to hardcoded values (for testing)
             logger.warning("⚠️  Not using SSM, using default values")
