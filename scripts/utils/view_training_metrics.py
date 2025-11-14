@@ -157,10 +157,12 @@ def parse_tensorboard_logs(log_dir: Path) -> Dict[str, List]:
         # Only keep important metrics
         if tag in important_metrics:
             events = ea.Scalars(tag)
+            # Sort by step to ensure chronological order (important when reading from multiple event files)
+            sorted_events = sorted(events, key=lambda e: e.step)
             metrics[tag] = {
-                'steps': [e.step for e in events],
-                'values': [e.value for e in events],
-                'wall_times': [e.wall_time for e in events]
+                'steps': [e.step for e in sorted_events],
+                'values': [e.value for e in sorted_events],
+                'wall_times': [e.wall_time for e in sorted_events]
             }
     
     logger.success(f"✅ Extracted {len(metrics)} metric(s)")
@@ -228,26 +230,28 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
             steps = data['steps']
             values = data['values']
             
-            ax.plot(steps, values, linewidth=2, color='#2E86DE', label='Training Loss', alpha=0.8)
+            # Data is already sorted by step at extraction time
+            ax.plot(steps, values, linewidth=2, color='#2E86DE',
+                   label='Training Loss', alpha=0.8)
             
-            # Annotate minimum training loss (top-left position to avoid overlap)
+            # Annotate minimum training loss (move further up to avoid overlap with val final)
             min_val = min(values)
             min_idx = values.index(min_val)
             ax.plot(steps[min_idx], min_val, 'o', color='#2E86DE', markersize=8)
-            ax.annotate(f'Train Min: {min_val:.4f}', 
+            ax.annotate(f'Train Min: {min_val:.4f}',
                        xy=(steps[min_idx], min_val),
-                       xytext=(10, 25), textcoords='offset points',
+                       xytext=(10, 35), textcoords='offset points',
                        fontsize=9, color='#2E86DE',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                                 edgecolor='#2E86DE', alpha=0.9))
             
             # Annotate final training loss (bottom-right)
             final_val = values[-1]
             ax.annotate(f'Train Final: {final_val:.4f}',
                        xy=(steps[-1], final_val),
-                       xytext=(-10, -25), textcoords='offset points',
+                       xytext=(-10, -35), textcoords='offset points',
                        fontsize=9, color='#2E86DE', ha='right',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                                 edgecolor='#2E86DE', alpha=0.9))
         
         # Plot eval loss (RED)
@@ -256,18 +260,19 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
             steps = data['steps']
             values = data['values']
             
-            ax.plot(steps, values, linewidth=2.5, color='#E74C3C', label='Validation Loss', 
-                   marker='o', markersize=5, alpha=0.9)
+            # Data is already sorted by step at extraction time
+            ax.plot(steps, values, linewidth=2.5, color='#E74C3C',
+                   label='Validation Loss', marker='o', markersize=5, alpha=0.9)
             
             # Annotate minimum eval loss (top-right position)
             min_val = min(values)
             min_idx = values.index(min_val)
             ax.plot(steps[min_idx], min_val, 'o', color='#E74C3C', markersize=10)
-            ax.annotate(f'Val Min: {min_val:.4f}', 
+            ax.annotate(f'Val Min: {min_val:.4f}',
                        xy=(steps[min_idx], min_val),
                        xytext=(-10, 25), textcoords='offset points',
                        fontsize=9, color='#E74C3C', ha='right',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                                 edgecolor='#E74C3C', alpha=0.9))
             
             # Annotate final eval loss (top-right)
@@ -276,7 +281,7 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
                        xy=(steps[-1], final_val),
                        xytext=(-10, 15), textcoords='offset points',
                        fontsize=9, color='#E74C3C', ha='right',
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                                 edgecolor='#E74C3C', alpha=0.9))
         
         ax.set_xlabel('Training Steps', fontsize=11, fontweight='bold')
@@ -298,7 +303,7 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
                    verticalalignment='center',
                    bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.8))
     
-    # Calculate and plot train-val loss gap (BAR CHART)
+    # Calculate and plot train-val loss gap
     if train_loss and eval_loss:
         ax = axes[plot_idx]
         plot_idx += 1
@@ -307,17 +312,27 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
         eval_steps = np.array(eval_loss[1]['steps'])
         eval_values = np.array(eval_loss[1]['values'])
         
+        # Filter out initial evaluation steps (often at steps 1-10 during initialization)
+        # Keep only steps >= 100 for cleaner visualization (regular eval intervals)
+        mask = eval_steps >= 100
+        eval_steps_filtered = eval_steps[mask]
+        eval_values_filtered = eval_values[mask]
+        
         # Interpolate train loss at eval steps
         train_steps = np.array(train_loss[1]['steps'])
         train_values = np.array(train_loss[1]['values'])
-        train_at_eval_steps = np.interp(eval_steps, train_steps, train_values)
+        train_at_eval_steps = np.interp(eval_steps_filtered, train_steps, train_values)
         
         # Calculate gap (eval - train)
-        loss_gap = eval_values - train_at_eval_steps
+        loss_gap = eval_values_filtered - train_at_eval_steps
         
-        # Plot gap as bar chart
+        # Plot gap as line chart with markers (better for time series)
         colors = ['#27AE60' if gap > 0 else '#E74C3C' for gap in loss_gap]
-        ax.bar(eval_steps, loss_gap, width=80, color=colors, alpha=0.7, edgecolor='black', linewidth=0.5)
+        ax.plot(eval_steps_filtered, loss_gap, linewidth=2, color='#9B59B6',
+                marker='o', markersize=6, alpha=0.8, label='Loss Gap')
+        # Color individual markers
+        for step, gap, color in zip(eval_steps_filtered, loss_gap, colors):
+            ax.plot(step, gap, 'o', color=color, markersize=6, alpha=0.9)
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1.5, alpha=0.8)
         ax.set_xlabel('Training Steps', fontsize=10, fontweight='bold')
         ax.set_ylabel('Loss Gap (Eval - Train)', fontsize=10)
@@ -334,7 +349,7 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
                    fontsize=9, verticalalignment='top',
                    bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.8))
     
-    # Plot other metrics (BAR CHARTS for cleaner visualization)
+    # Plot other metrics
     # Clean metric names for better display
     metric_display_names = {
         'train/learning_rate': 'Learning Rate Schedule',
@@ -348,35 +363,39 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
         steps = data['steps']
         values = data['values']
         
-        # Choose color based on metric type
-        color = '#F39C12' if 'learning_rate' in name else '#3498DB'
+        # Data is already sorted by step at extraction time
+        # Choose color and style based on metric type
+        if 'learning_rate' in name:
+            # Line plot for learning rate (show all data points for detail)
+            color = '#F39C12'
+            ax.plot(steps, values, linewidth=2, color=color, alpha=0.8)
+            ax.fill_between(steps, values, alpha=0.3, color=color)
+            ax.grid(True, alpha=0.3, linestyle='--')
+            
+            # Show peak learning rate
+            final_val = values[-1]
+            max_val = max(values)
+            ax.text(0.98, 0.98, f'Peak: {max_val:.2e}\nFinal: {final_val:.2e}',
+                   transform=ax.transAxes, fontsize=9, ha='right', va='top',
+                   bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
+        else:
+            # Line graph for epoch progress
+            color = '#3498DB'
+            ax.plot(steps, values, linewidth=2, color=color, alpha=0.8)
+            ax.grid(True, alpha=0.3, linestyle='--')
+            
+            # For epoch, show final value
+            final_val = values[-1]
+            ax.text(0.98, 0.98, f'Final: {final_val:.1f} epochs',
+                   transform=ax.transAxes, fontsize=9, ha='right', va='top',
+                   bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
         
-        # Use bar chart for cleaner visualization (avoids weird connecting lines)
-        ax.bar(steps, values, width=10, color=color, alpha=0.7, edgecolor='black', linewidth=0.5)
         ax.set_xlabel('Training Steps', fontsize=10, fontweight='bold')
         
         # Use clean display name
         display_name = metric_display_names.get(name, name)
         ax.set_ylabel(display_name, fontsize=10)
         ax.set_title(display_name, fontsize=12, fontweight='bold')
-        ax.grid(True, alpha=0.3, linestyle='--', axis='y')
-        
-        # Add annotations for key values
-        if values:
-            final_val = values[-1]
-            max_val = max(values)
-            
-            # Special formatting for learning rate (scientific notation)
-            if 'learning_rate' in name:
-                # Show peak learning rate
-                ax.text(0.98, 0.98, f'Peak: {max_val:.2e}\nFinal: {final_val:.2e}',
-                       transform=ax.transAxes, fontsize=9, ha='right', va='top',
-                       bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
-            else:
-                # For epoch, just show final value
-                ax.text(0.98, 0.98, f'Final: {final_val:.1f} epochs',
-                       transform=ax.transAxes, fontsize=9, ha='right', va='top',
-                       bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
     
     # Hide unused subplots
     for idx in range(plot_idx, len(axes)):

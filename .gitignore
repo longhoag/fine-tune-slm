@@ -35,6 +35,7 @@ Thumbs.db
 logs/
 tensorboard-logs/
 training_metrics_with_gap.png
+metrics_check.csv
 
 # Training outputs
 outputs/
