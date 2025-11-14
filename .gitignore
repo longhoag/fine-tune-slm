@@ -34,7 +34,6 @@ Thumbs.db
 *.log
 logs/
 tensorboard-logs/
-training_metrics_with_gap.png
 metrics_check.csv
 metrics_summary.csv
 
