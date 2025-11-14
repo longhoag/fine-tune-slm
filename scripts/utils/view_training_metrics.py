@@ -147,17 +147,25 @@ def parse_tensorboard_logs(log_dir: Path) -> Dict[str, List]:
     ea = event_accumulator.EventAccumulator(str(log_dir))
     ea.Reload()
     
-    # Extract all scalar metrics
+    # Extract only important scalar metrics (filter out noise)
+    important_metrics = {
+        'train/loss', 'eval/loss', 'train/learning_rate',
+        'train/grad_norm', 'train/epoch'
+    }
+    
     metrics = {}
     for tag in ea.Tags()['scalars']:
-        events = ea.Scalars(tag)
-        metrics[tag] = {
-            'steps': [e.step for e in events],
-            'values': [e.value for e in events],
-            'wall_times': [e.wall_time for e in events]
-        }
+        # Only keep important metrics
+        if tag in important_metrics:
+            events = ea.Scalars(tag)
+            metrics[tag] = {
+                'steps': [e.step for e in events],
+                'values': [e.value for e in events],
+                'wall_times': [e.wall_time for e in events]
+            }
     
     logger.success(f"✅ Extracted {len(metrics)} metric(s)")
+    logger.info(f"   Metrics: {', '.join(metrics.keys())}")
     return metrics
 
 
@@ -286,6 +294,13 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
                    bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.7))
     
     # Plot other metrics
+    # Clean metric names for better display
+    metric_display_names = {
+        'train/learning_rate': 'Learning Rate Schedule',
+        'train/grad_norm': 'Gradient Norm',
+        'train/epoch': 'Training Epoch Progress'
+    }
+    
     for name, data in other_metrics.items():
         ax = axes[plot_idx]
         plot_idx += 1
@@ -293,21 +308,39 @@ def plot_metrics(metrics: Dict[str, List], save_path: Path = None):
         steps = data['steps']
         values = data['values']
         
-        ax.plot(steps, values, linewidth=2, color='#2E86AB')
-        ax.set_xlabel('Step', fontsize=10)
-        ax.set_ylabel(name, fontsize=10)
-        ax.set_title(name, fontsize=12, fontweight='bold')
-        ax.grid(True, alpha=0.3)
+        # Choose color based on metric type
+        color = '#2E86AB'  # Default blue
+        if 'learning_rate' in name:
+            color = '#F77F00'  # Orange for learning rate
+        elif 'grad_norm' in name:
+            color = '#06A77D'  # Green for gradient norm
         
-        # Add min/max annotations
+        ax.plot(steps, values, linewidth=2, color=color, alpha=0.8)
+        ax.set_xlabel('Training Steps', fontsize=10, fontweight='bold')
+        
+        # Use clean display name
+        display_name = metric_display_names.get(name, name)
+        ax.set_ylabel(display_name, fontsize=10)
+        ax.set_title(display_name, fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3, linestyle='--')
+        
+        # Add annotations
         if values:
-            min_val = min(values)
             final_val = values[-1]
             
-            ax.annotate(f'Final: {final_val:.4f}',
-                       xy=(steps[-1], final_val),
-                       xytext=(-10, -10), textcoords='offset points',
-                       fontsize=9, ha='right')
+            # Special formatting for learning rate (scientific notation)
+            if 'learning_rate' in name:
+                ax.annotate(f'Final: {final_val:.2e}',
+                           xy=(steps[-1], final_val),
+                           xytext=(-10, 10), textcoords='offset points',
+                           fontsize=9, ha='right',
+                           bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
+            else:
+                ax.annotate(f'Final: {final_val:.4f}',
+                           xy=(steps[-1], final_val),
+                           xytext=(-10, 10), textcoords='offset points',
+                           fontsize=9, ha='right',
+                           bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
     
     # Hide unused subplots
     for idx in range(plot_idx, len(axes)):
