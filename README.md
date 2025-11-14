@@ -189,7 +189,7 @@ sequenceDiagram
 
 ### Training Metrics Visualization
 
-![Training Metrics](training_metrics_with_gap.png)
+![Training Metrics](training_metrics.png)
 
 **Key Observations:**
 1. **Training Loss** (blue): Smooth exponential decay from 2.68 → 0.56
